@@ -24,4 +24,4 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 WORKDIR /workspace
 
 # КОПИРУЕМ ВАШИ СКРИПТЫ ВНУТРЬ ОБРАЗА (этот слой меняется чаще всего)
-COPY my_project/ /workspace/
+COPY src/ /workspace/

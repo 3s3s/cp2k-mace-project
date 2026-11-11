@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
+"""
+Модуль визуализации XYZ-структур в интерактивный HTML (Three.js).
+
+Может использоваться как:
+  - самостоятельный скрипт: python xyz_to_html.py input.xyz output.html
+  - модуль: from xyz_to_html import structure_to_html
+"""
+
 import sys
 import os
 import re
 import numpy as np
 from collections import Counter
 
+# ---------- КОНСТАНТЫ ----------
 ATOM_RADIUS = 1.2
 ATOM_COLOR = "#B87333"
 BACKGROUND_COLOR = "#1a1a2e"
+
 
 def read_first_structure(xyz_path):
     with open(xyz_path, "r", encoding="utf-8", errors="replace") as f:
@@ -26,6 +36,7 @@ def read_first_structure(xyz_path):
     formula = "".join(f"{el}{cnt}" for el, cnt in sorted(counts.items()))
     return atoms, energy_eV, n_atoms, formula
 
+
 def compute_distances(atoms):
     coords = np.array([[x, y, z] for _, x, y, z in atoms])
     n = len(coords)
@@ -34,6 +45,7 @@ def compute_distances(atoms):
         dists = [float(np.linalg.norm(coords[i] - coords[j])) for i in range(n) for j in range(i+1, n)]
         return {"min": min(dists), "max": max(dists), "n_pairs": len(dists)}
     return {}
+
 
 def generate_html(atoms, energy_eV, n_atoms, formula, distances, output_path):
     atoms_js = ",\n        ".join(
@@ -94,22 +106,17 @@ def generate_html(atoms, energy_eV, n_atoms, formula, distances, output_path):
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(renderer.domElement);
 
-        // Свет
         scene.add(new THREE.AmbientLight(0xffffff, 0.6));
         const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
         dirLight.position.set(5, 10, 7);
         dirLight.castShadow = true;
         scene.add(dirLight);
 
-        // 1. Центр масс
         let cx = 0, cy = 0, cz = 0;
         atomsData.forEach(a => {{ cx += a.x; cy += a.y; cz += a.z; }});
         cx /= atomsData.length; cy /= atomsData.length; cz /= atomsData.length;
 
-        // 2. Группа атомов
         const moleculeGroup = new THREE.Group();
-        // Порядок YXZ гарантирует, что вертикальное движение мыши
-        // вращает молекулу строго вокруг горизонтальной оси X.
         moleculeGroup.rotation.order = 'YXZ'; 
         scene.add(moleculeGroup);
 
@@ -124,7 +131,6 @@ def generate_html(atoms, energy_eV, n_atoms, formula, distances, output_path):
             moleculeGroup.add(sphere);
         }});
 
-        // Камера
         const DEFAULT_DISTANCE = 15;
         let zoomDistance = DEFAULT_DISTANCE;
         function updateCamera() {{
@@ -134,14 +140,12 @@ def generate_html(atoms, energy_eV, n_atoms, formula, distances, output_path):
         }}
         updateCamera();
 
-        // Сброс
         document.getElementById('btn-reset').onclick = () => {{
             moleculeGroup.rotation.set(0, 0, 0);
             zoomDistance = DEFAULT_DISTANCE;
             updateCamera();
         }};
 
-        // Вращение
         const dom = renderer.domElement;
         let isDragging = false, lastX = 0, lastY = 0;
         dom.addEventListener('pointerdown', (e) => {{
@@ -154,12 +158,10 @@ def generate_html(atoms, energy_eV, n_atoms, formula, distances, output_path):
             if (!isDragging) return;
             const dx = e.clientX - lastX, dy = e.clientY - lastY;
             lastX = e.clientX; lastY = e.clientY;
-            
             moleculeGroup.rotation.y += dx * 0.01;
             moleculeGroup.rotation.x += dy * 0.01;
         }});
 
-        // Зум
         dom.addEventListener('wheel', (e) => {{
             e.preventDefault();
             zoomDistance *= (1 + e.deltaY * 0.001);
@@ -185,14 +187,40 @@ def generate_html(atoms, energy_eV, n_atoms, formula, distances, output_path):
 </body>
 </html>
 """
+    # Создаём родительскую директорию, если её нет
+    parent_dir = os.path.dirname(output_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
+
     with open(output_path, "w", encoding="utf-8") as f: f.write(html)
     print(f"HTML сохранён: {output_path}")
 
-def main():
-    if len(sys.argv) < 2: sys.exit(1)
-    output_path = sys.argv[2] if len(sys.argv) > 2 else "cluster_view.html"
-    atoms, energy_eV, n_atoms, formula = read_first_structure(sys.argv[1])
-    distances = compute_distances(atoms)
-    generate_html(atoms, energy_eV, n_atoms, formula, distances, output_path)
 
-if __name__ == "__main__": main()
+# ---------- ПУБЛИЧНАЯ ФУНКЦИЯ ДЛЯ ИМПОРТА ----------
+def structure_to_html(xyz_path: str, output_html: str = None) -> str:
+    """
+    Читает первую структуру из xyz_path и генерирует HTML-файл.
+    
+    Параметры:
+      xyz_path : путь к .xyz-файлу
+      output_html : путь к выходному HTML (если None, будет <xyz_path без .xyz>.html)
+    
+    Возвращает путь к созданному HTML-файлу.
+    """
+    if output_html is None:
+        base, _ = os.path.splitext(xyz_path)
+        output_html = f"{base}.html"
+
+    atoms, energy_eV, n_atoms, formula = read_first_structure(xyz_path)
+    distances = compute_distances(atoms)
+    generate_html(atoms, energy_eV, n_atoms, formula, distances, output_html)
+    return output_html
+
+
+# ---------- ЗАПУСК КАК САМОСТОЯТЕЛЬНОГО СКРИПТА ----------
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Использование: python xyz_to_html.py input.xyz [output.html]")
+        sys.exit(1)
+    output_path = sys.argv[2] if len(sys.argv) > 2 else None
+    structure_to_html(sys.argv[1], output_path)

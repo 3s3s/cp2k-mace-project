@@ -3,12 +3,6 @@
 Модуль генерации случайных кластеров Cu_n (n = 2..N) в 1D, 2D, 3D.
 Расстояние между атомами: [ATOM_DIAMETER, 3*ATOM_DIAMETER].
 Записывает структуры в extxyz для последующего расчёта в CP2K.
-
-Число атомов и число структур для каждого случая задаются словарём:
-    STRUCTURES_PER_N = {2: 10, 3: 20, 4: 15}
-означает: 10 структур для Cu2, 20 для Cu3, 15 для Cu4.
-
-BOX_SIZE вычисляется автоматически для каждого n_atoms.
 """
 
 import os
@@ -16,32 +10,28 @@ import random
 import numpy as np
 
 # ---------- КОНСТАНТЫ ----------
-ATOM_DIAMETER = 2.0          # Å, металлический радиус Cu ~1.28 Å * 2
+ATOM_DIAMETER = 2.0          # Å
 MIN_DIST = ATOM_DIAMETER
 MAX_DIST = 2.0 * ATOM_DIAMETER
 
 # Словарь: {число атомов: число структур}
-STRUCTURES_PER_N = {2: 10}#, 3: 20, 4: 15}
+STRUCTURES_PER_N = {2: 10}   #, 3: 20, 4: 15}
 
-# Размерности для каждого n_atoms: {n_atoms: [список размерностей]}
+# Размерности для каждого n_atoms
 DIMENSIONS_PER_N = {
-    2: [3],           # для Cu2 достаточно 3D
-    #3: [1, 2, 3],     # для Cu3 — все три
-    #4: [2, 3],        # для Cu4 — 2D и 3D
+    2: [3],
+    #3: [1, 2, 3],
+    #4: [2, 3],
 }
 
-OUTPUT_XYZ = "generated_structures.xyz"
+# Путь к выходному файлу (относительно корня проекта, где вы запускаете скрипт)
+OUTPUT_XYZ = os.path.join(os.path.dirname(__file__), "..", "results", "generated_structures.xyz")
 RANDOM_SEED = 42
-
-# Множитель запаса для BOX_SIZE (1.5 = 50% запаса сверх минимально необходимого)
 BOX_SIZE_MARGIN = 4.0
 
 
 def compute_box_size(n_atoms: int) -> float:
-    """
-    Вычисляет размер кубической ячейки, гарантированно достаточный
-    для размещения n_atoms точек с попарными расстояниями до MAX_DIST.
-    """
+    """Вычисляет размер кубической ячейки."""
     return MAX_DIST * np.sqrt(n_atoms) * BOX_SIZE_MARGIN
 
 
@@ -84,14 +74,23 @@ def generate_structure(n_atoms: int, dim: int):
     for attempt in range(10000):
         points = np.array([point_fn(box_size) for _ in range(n_atoms)])
         if check_distances(points):
-            # Центрируем структуру в ячейке
             center_of_mass = points.mean(axis=0)
             points = points - center_of_mass + box_size / 2.0
             return points, box_size
-    raise RuntimeError(...)
+    # ИСПРАВЛЕНО: было raise RuntimeError(...) без сообщения
+    raise RuntimeError(
+        f"Не удалось сгенерировать структуру для n_atoms={n_atoms}, dim={dim} "
+        f"за 10000 попыток. Попробуйте увеличить BOX_SIZE_MARGIN."
+    )
+
 
 def write_xyz(structures, n_atoms, dim, box_size, path):
     """Записывает список структур в extxyz (append)."""
+    # ИСПРАВЛЕНО: создаём родительскую директорию, если её нет
+    parent_dir = os.path.dirname(path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
+
     with open(path, "a") as f:
         for points in structures:
             n = len(points)

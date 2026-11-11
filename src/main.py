@@ -16,8 +16,14 @@ import shutil
 import glob
 
 from find_minimum import run_find_minimum
+from mace.calculators import MACECalculator
+from find_minimum import run_find_minimum
 
 # ---------- КОНСТАНТЫ ----------
+# ИСПРАВЛЕНО: вычислительное устройство ("cpu" или "gpu")
+ELEMENT = "Cu"
+DEVICE = "cpu"   # <-- Здесь можно поменять на "gpu"
+
 CELL_SIZE = 20.0
 CENTER_XY = CELL_SIZE / 2.0
 CENTER_Z = CELL_SIZE / 2.0
@@ -27,14 +33,16 @@ HARTREE_TO_EV = 27.211386
 HARTREE_BOHR_TO_EV_ANG = 51.422067
 
 CP2K_CMD = "cp2k"
-INPUT_XYZ = "generated_structures.xyz"          # от structure_generator.py
-OUTPUT_DIR = "cu_all_run"                        # все файлы расчётов
-OUTPUT_XYZ_NAME = "cu_all_data.xyz"              # итоговый extxyz для MACE
+# ИСПРАВЛЕНО: используем путь относительно директории скрипта (но main.py ожидает запуск из корня проекта)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+INPUT_XYZ = os.path.join(SCRIPT_DIR, "..", "results", "generated_structures.xyz")
+OUTPUT_DIR = "results"
+OUTPUT_XYZ_NAME = f"{ELEMENT}_all_data.xyz"
 TIMEOUT_PER_CONFIG = 1800
 VERBOSE_CP2K = True
 
 # Параметры MACE и каталоги
-MACE_MODEL_NAME = "cu_all_finetune"
+MACE_MODEL_NAME = f"{ELEMENT}_all_finetune"
 MACE_BASE_DIR = "mace_output"
 MACE_CHECKPOINTS_DIR = os.path.join(MACE_BASE_DIR, "checkpoints")
 MACE_MODEL_DIR = os.path.join(MACE_BASE_DIR, "models")
@@ -57,7 +65,7 @@ MACE_CMD_BASE = [
     "--lr", "0.001",
     "--max_num_epochs", "50",
     "--eval_interval", "5",
-    "--device", "cpu",
+    "--device", DEVICE,  # <-- ИСПРАВЛЕНО: передаём DEVICE
     "--default_dtype", "float32",
     "--checkpoints_dir", MACE_CHECKPOINTS_DIR,
     "--model_dir", MACE_MODEL_DIR,
@@ -128,7 +136,6 @@ TEMPLATE = """&GLOBAL
 
 # ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
 def read_structures(xyz_path):
-    """Читает extxyz, возвращает список структур (каждая — список (x,y,z))."""
     structures = []
     with open(xyz_path, "r", encoding="utf-8", errors="replace") as f:
         while True:
@@ -142,7 +149,7 @@ def read_structures(xyz_path):
                 n_atoms = int(line)
             except ValueError:
                 break
-            f.readline()  # comment
+            f.readline()
             coords = []
             for _ in range(n_atoms):
                 parts = f.readline().split()
@@ -238,7 +245,7 @@ def build_xyz_record(coords, energy_ev, forces_ev_ang):
     lines = [str(n), comment]
     for (x, y, z), (fx, fy, fz) in zip(coords, forces_ev_ang):
         lines.append(
-            f"Cu {x:.8f} {y:.8f} {z:.8f} "
+            f"{ELEMENT} {x:.8f} {y:.8f} {z:.8f} "
             f"{fx:.8f} {fy:.8f} {fz:.8f}"
         )
     return "\n".join(lines) + "\n"
@@ -267,6 +274,11 @@ def count_xyz_records(xyz_path):
 
 # ---------- ОСНОВНОЙ ЦИКЛ ----------
 def main():
+    # ИСПРАВЛЕНО: сообщение о режиме запуска
+    print("=" * 60)
+    print(f"ЗАПУСК В РЕЖИМЕ: {DEVICE.upper()}")
+    print("=" * 60)
+
     if not os.path.exists(INPUT_XYZ):
         print(f"✗ Входной файл {INPUT_XYZ} не найден. Сначала запустите structure_generator.py")
         sys.exit(1)
@@ -288,7 +300,7 @@ def main():
                 continue
 
             n_atoms = len(coords)
-            project = f"cu{n_atoms}_{idx:03d}"
+            project = f"{ELEMENT}{n_atoms}_{idx:03d}"
             inp_file = f"{project}.inp"
             out_file = f"{project}.out"
             force_file = f"{project}.forces"
@@ -300,7 +312,7 @@ def main():
             force_path = os.path.join(OUTPUT_DIR, force_file)
 
             coords_block = "\n".join(
-                f"      Cu  {x:.8f}  {y:.8f}  {z:.8f}" for x, y, z in coords
+                f"      {ELEMENT}  {x:.8f}  {y:.8f}  {z:.8f}" for x, y, z in coords
             )
 
             with open(inp_path, "w") as f:
@@ -351,7 +363,7 @@ def main():
     os.makedirs(MACE_RESULTS_DIR, exist_ok=True)
 
     print("\n" + "=" * 60)
-    print("ЗАПУСК MACE FINE-TUNING")
+    print(f"ЗАПУСК MACE FINE-TUNING (устройство: {DEVICE.upper()})")
     print("=" * 60)
     mace_result = subprocess.run(MACE_CMD_BASE)
     if mace_result.returncode != 0:
@@ -372,12 +384,23 @@ def main():
     print(f"Используется модель: {model_path}")
 
     # ---------- ЗАПУСК find_minimum ----------
-    result = run_find_minimum(
+    print("\n" + "=" * 60)
+    print(f"ПОИСК МИНИМУМА (устройство: {DEVICE.upper()})")
+    print("=" * 60)
+    
+    calc = MACECalculator(
         model_path=model_path,
+        device=DEVICE,          # DEVICE задан в начале файла
+        default_dtype="float32",
+    )
+
+    result = run_find_minimum(
+        calc=calc,              # <-- передаём готовый калькулятор
         xyz_path=xyz_path,
         output_xyz=os.path.join(OUTPUT_DIR, "optimized_first_structure.xyz"),
         logfile=os.path.join(OUTPUT_DIR, "opt.log"),
     )
+
     print(f"\nИтог: r = {result['final_distance']:.4f} Å, E = {result['final_energy']:.6f} eV")
 
 if __name__ == "__main__":

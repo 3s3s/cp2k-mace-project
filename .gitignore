@@ -1,0 +1,4 @@
+*.Identifier
+*.xyz
+results
+__pycache__
