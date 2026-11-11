@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>3D Cluster Viewer</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1a1a2e; font-family: Arial, sans-serif; }
+        canvas { display: block; }
+        #panel { position: absolute; top: 10px; right: 10px; width: 280px; color: #ddd; font-size: 13px; background: rgba(0,0,0,0.65); padding: 12px 14px; border-radius: 8px; line-height: 1.5; pointer-events: none; }
+        #panel h3 { margin: 0 0 8px 0; color: #fff; font-size: 15px; border-bottom: 1px solid #555; padding-bottom: 6px; }
+        #panel .hint { color: #9ab; font-size: 12px; margin-top: 10px; border-top: 1px solid #333; padding-top: 8px; }
+        #buttons { position: absolute; bottom: 15px; left: 15px; display: flex; gap: 8px; z-index: 10; }
+        #buttons button { padding: 8px 14px; border-radius: 6px; background: rgba(30,40,60,0.9); color: #ddd; font-size: 13px; cursor: pointer; border: 1px solid #445566; }
+        #buttons button:hover { background: rgba(60,80,110,0.95); color: #fff; }
+    </style>
+</head>
+<body>
+    <div id="panel">
+        <h3>Информация</h3>
+        <b>Кластер:</b> Cu2<br><b>Число атомов:</b> 2<br><b>Расстояние Cu–Cu:</b> 2.2936 Å<br><b>Энергия:</b> -2613.649170 eV
+        <div class="hint">
+            <b>Управление:</b><br>
+            ЛКМ — вращение<br>
+            Колесо — зум<br>
+            Двойной клик — сброс
+        </div>
+    </div>
+    <div id="buttons">
+        <button id="btn-reset">Сброс</button>
+    </div>
+    <script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+
+        const atomsData = [{ x: 10.839768, y: 8.088937, z: 6.879055, element: "Cu" },
+        { x: 11.819040, y: 6.016988, z: 6.972344, element: "Cu" }];
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color('#1a1a2e');
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        dirLight.position.set(5, 10, 7);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+
+        let cx = 0, cy = 0, cz = 0;
+        atomsData.forEach(a => { cx += a.x; cy += a.y; cz += a.z; });
+        cx /= atomsData.length; cy /= atomsData.length; cz /= atomsData.length;
+
+        const moleculeGroup = new THREE.Group();
+        moleculeGroup.rotation.order = 'YXZ'; 
+        scene.add(moleculeGroup);
+
+        const sphereGeo = new THREE.SphereGeometry(1.2, 48, 48);
+        const sphereMat = new THREE.MeshStandardMaterial({ color: '#B87333', roughness: 0.4, metalness: 0.4 });
+        
+        atomsData.forEach(atom => {
+            const sphere = new THREE.Mesh(sphereGeo, sphereMat.clone());
+            sphere.position.set(atom.x - cx, atom.y - cy, atom.z - cz);
+            sphere.castShadow = true;
+            sphere.receiveShadow = true;
+            moleculeGroup.add(sphere);
+        });
+
+        const DEFAULT_DISTANCE = 15;
+        let zoomDistance = DEFAULT_DISTANCE;
+        function updateCamera() {
+            const dir = new THREE.Vector3(0, 0.3, 1).normalize();
+            camera.position.copy(dir.multiplyScalar(zoomDistance));
+            camera.lookAt(0, 0, 0);
+        }
+        updateCamera();
+
+        document.getElementById('btn-reset').onclick = () => {
+            moleculeGroup.rotation.set(0, 0, 0);
+            zoomDistance = DEFAULT_DISTANCE;
+            updateCamera();
+        };
+
+        const dom = renderer.domElement;
+        let isDragging = false, lastX = 0, lastY = 0;
+        dom.addEventListener('pointerdown', (e) => {
+            if (e.button === 0) { isDragging = true; lastX = e.clientX; lastY = e.clientY; dom.setPointerCapture(e.pointerId); }
+        });
+        dom.addEventListener('pointerup', (e) => {
+            if (e.button === 0) { isDragging = false; dom.releasePointerCapture(e.pointerId); }
+        });
+        dom.addEventListener('pointermove', (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - lastX, dy = e.clientY - lastY;
+            lastX = e.clientX; lastY = e.clientY;
+            moleculeGroup.rotation.y += dx * 0.01;
+            moleculeGroup.rotation.x += dy * 0.01;
+        });
+
+        dom.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            zoomDistance *= (1 + e.deltaY * 0.001);
+            zoomDistance = Math.max(5, Math.min(50, zoomDistance));
+            updateCamera();
+        }, { passive: false });
+
+        dom.addEventListener('contextmenu', (e) => e.preventDefault());
+        dom.addEventListener('dblclick', () => { 
+            moleculeGroup.rotation.set(0, 0, 0); 
+            zoomDistance = DEFAULT_DISTANCE; 
+            updateCamera(); 
+        });
+
+        function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
+        animate();
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>

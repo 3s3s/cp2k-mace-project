@@ -112,7 +112,15 @@ def run_find_minimum(
 
     html_path = None
     if make_html:
-        html_path = os.path.splitext(output_xyz)[0] + ".html"
+        # find_minimum.py лежит в cp2k-mace-project/src,
+        # значит static_pages = <script_dir>/webserver/static_pages
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        static_pages_dir = os.path.join(script_dir, "webserver", "static_pages")
+        os.makedirs(static_pages_dir, exist_ok=True)
+
+        html_name = os.path.splitext(os.path.basename(output_xyz))[0] + ".html"
+        html_path = os.path.join(static_pages_dir, html_name)
+
         try:
             structure_to_html(output_xyz, html_path)
         except Exception as e:

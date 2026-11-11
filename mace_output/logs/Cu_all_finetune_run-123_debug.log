@@ -1,159 +1,159 @@
-2026-11-11 21:31:17.467 INFO: ===========VERIFYING SETTINGS===========
-2026-11-11 21:31:17.468 INFO: MACE version: 0.3.17
-2026-11-11 21:31:17.468 DEBUG: Configuration: Namespace(config=None, name='Cu_all_finetune', seed=123, work_dir='.', log_dir='mace_output/logs', model_dir='mace_output/models', checkpoints_dir='mace_output/checkpoints', results_dir='mace_output/results', downloads_dir='./downloads', device='cpu', default_dtype='float32', distributed=False, launcher='slurm', log_level='INFO', plot=True, plot_frequency=0, plot_interaction_e=False, error_table='PerAtomRMSE', model='MACE', r_max=5.0, radial_type='bessel', num_radial_basis=8, num_cutoff_basis=5, pair_repulsion=False, distance_transform='None', apply_cutoff=True, use_last_readout_only=False, use_embedding_readout=False, interaction='RealAgnosticResidualInteractionBlock', interaction_first='RealAgnosticResidualInteractionBlock', max_ell=3, correlation=3, use_reduced_cg=False, use_so3=False, use_agnostic_product=False, num_interactions=2, MLP_irreps='16x0e', radial_MLP='[64, 64, 64]', hidden_irreps='128x0e + 128x1o', edge_irreps=None, use_edge_irreps_first=False, num_channels=128, max_L=1, gate='silu', kspace_cutoff_factor=1.5, atomic_multipoles_max_l=0, atomic_multipoles_smearing_width=1.0, field_feature_max_l=0, field_feature_widths='[1.0]', field_feature_norms=None, num_recursion_steps=1, field_si=False, include_electrostatic_self_interaction=False, add_local_electron_energy=False, quadrupole_feature_corrections=False, return_electrostatic_potentials=False, field_norm_factor=0.02, fixedpoint_update_config=None, field_readout_config=None, scaling='rms_forces_scaling', avg_num_neighbors=1, compute_avg_num_neighbors=True, compute_stress=False, compute_forces=True, compute_polarizability=False, compute_atomic_dipole=False, compute_magforces=False, train_file='results/Cu_all_data.xyz', valid_file=None, valid_fraction=0.2, test_file=None, test_dir=None, multi_processed_test=False, num_workers=0, pin_memory=True, atomic_numbers=None, mean=None, std=None, statistics_file=None, les_arguments=None, E0s='estimated', pseudolabel_replay=False, pseudolabel_replay_compute_stress=False, heads=None, multiheads_finetuning=False, foundation_head=None, weight_pt_head=1.0, real_pt_data_ratio_threshold=0.1, num_samples_pt=10000, force_mh_ft_lr=False, subselect_pt='random', filter_type_pt='none', allow_random_padding_pt=True, pt_train_file=None, pt_valid_file=None, foundation_model_elements=False, keep_isolated_atoms=False, lora=False, lora_rank=4, lora_alpha=1.0, energy_key='energy', forces_key='forces', virials_key='REF_virials', stress_key='REF_stress', dipole_key='dipole', polarizability_key='polarizability', magmom_key='REF_magmom', magforces_key='REF_magforces', head_key='head', charges_key='REF_charges', elec_temp_key='elec_temp', total_spin_key='total_spin', total_charge_key='total_charge', embedding_specs=None, skip_evaluate_heads='pt_head', loss='weighted', forces_weight=10.0, swa_forces_weight=100.0, magforces_weight=100.0, swa_magforces_weight=100.0, energy_weight=1.0, swa_energy_weight=1000.0, virials_weight=1.0, swa_virials_weight=10.0, stress_weight=1.0, swa_stress_weight=10.0, dipole_weight=1.0, swa_dipole_weight=1.0, swa_polarizability_weight=1.0, polarizability_weight=1.0, config_type_weights='{"Default":1.0}', huber_delta=0.01, optimizer='adam', beta=0.9, beta1_schedulefree=0.9, beta2_schedulefree=0.98, warmup_steps_schedulefree=0, batch_size=1, valid_batch_size=10, lr=0.001, swa_lr=0.001, weight_decay=5e-07, lr_params_factors='{"embedding_lr_factor": 1.0, "interactions_lr_factor": 1.0, "products_lr_factor": 1.0, "readouts_lr_factor": 1.0}', freeze=None, amsgrad=True, scheduler='ReduceLROnPlateau', lr_factor=0.8, scheduler_patience=50, lr_scheduler_gamma=0.9993, swa=False, start_swa=None, lbfgs=False, ema=False, ema_decay=0.99, max_num_epochs=50, patience=2048, foundation_model='small', foundation_model_kwargs='{}', foundation_model_readout=True, finetune_dipoles_polarizabilities=False, eval_interval=5, keep_checkpoints=False, save_all_checkpoints=False, restart_latest=False, save_cpu=False, clip_grad=10.0, dry_run=False, enable_cueq=False, only_cueq=False, cueq_conv_fusion=False, enable_oeq=False, wandb=False, wandb_dir=None, wandb_project='', wandb_entity='', wandb_name='', wandb_log_hypers=['num_channels', 'max_L', 'correlation', 'lr', 'swa_lr', 'weight_decay', 'batch_size', 'max_num_epochs', 'start_swa', 'energy_weight', 'forces_weight'], num_mag_radial_basis_one_body=10, m_max=None, max_m_ell=3, num_mag_radial_basis=8, use_magmom_one_body=False, train_one_body_contribution=True, data_aug_magmom=False, data_aug_magmom_mode='non-soc', key_specification=KeySpecification(info_keys={'energy': 'energy', 'stress': 'REF_stress', 'virials': 'REF_virials', 'dipole': 'dipole', 'head': 'head', 'elec_temp': 'elec_temp', 'total_charge': 'total_charge', 'polarizability': 'polarizability', 'total_spin': 'total_spin'}, arrays_keys={'forces': 'forces', 'charges': 'REF_charges', 'magmom': 'REF_magmom', 'magforces': 'REF_magforces'}))
-2026-11-11 21:31:17.468 INFO: Using CPU
-2026-11-11 21:31:17.659 DEBUG: Popen(['git', 'version'], cwd=/home/papa/cp2k-mace-project, stdin=None, shell=False, universal_newlines=False)
-2026-11-11 21:31:17.671 DEBUG: Popen(['git', 'version'], cwd=/home/papa/cp2k-mace-project, stdin=None, shell=False, universal_newlines=False)
-2026-11-11 21:31:17.673 DEBUG: sys.platform='linux', git_executable='git'
-2026-11-11 21:31:17.675 DEBUG: Popen(['git', 'cat-file', '--batch-check'], cwd=/home/papa/cp2k-mace-project, stdin=<valid stream>, shell=False, universal_newlines=False)
-2026-11-11 21:31:17.677 DEBUG: Current Git commit: b8f320623f819056d907088fe9e73241d8790447
-2026-11-11 21:31:17.677 INFO: Using foundation model mace small as initial checkpoint.
-2026-11-11 21:31:17.814 INFO: Using CPU
-2026-11-11 21:31:17.815 INFO: Using head Default out of  ['Default']
-2026-11-11 21:31:17.815 WARNING: Default dtype float32 does not match model dtype float64, converting models to float32.
-2026-11-11 21:31:17.846 INFO: ===========LOADING INPUT DATA===========
-2026-11-11 21:31:17.846 INFO: Using heads: ['Default']
-2026-11-11 21:31:17.846 INFO: Using the key specifications to parse data:
-2026-11-11 21:31:17.846 INFO: Default: KeySpecification(info_keys={'energy': 'energy', 'stress': 'REF_stress', 'virials': 'REF_virials', 'dipole': 'dipole', 'head': 'head', 'elec_temp': 'elec_temp', 'total_charge': 'total_charge', 'polarizability': 'polarizability', 'total_spin': 'total_spin'}, arrays_keys={'forces': 'forces', 'charges': 'REF_charges', 'magmom': 'REF_magmom', 'magforces': 'REF_magforces'})
-2026-11-11 21:31:17.846 INFO: =============    Processing head Default     ===========
-2026-11-11 21:31:17.847 DEBUG: Loading training file: results/Cu_all_data.xyz
-2026-11-11 21:31:17.857 WARNING: Since ASE version 3.23.0b1, using energy_key 'energy' is no longer safe when communicating between MACE and ASE. We recommend using a different key, rewriting 'energy' to 'REF_energy'. You need to use --energy_key='REF_energy' to specify the chosen key name.
-2026-11-11 21:31:17.858 WARNING: Since ASE version 3.23.0b1, using forces_key 'forces' is no longer safe when communicating between MACE and ASE. We recommend using a different key, rewriting 'forces' to 'REF_forces'. You need to use --forces_key='REF_forces' to specify the chosen key name.
-2026-11-11 21:31:17.860 INFO: Training set 1/1 [energy: 10, stress: 0, virials: 0, dipole components: 0, head: 10, elec_temp: 0, total_charge: 0, polarizability: 0, total_spin: 0, forces: 10, charges: 0, magmom: 0, magforces: 0]
-2026-11-11 21:31:17.860 INFO: Total Training set [energy: 10, stress: 0, virials: 0, dipole components: 0, head: 10, elec_temp: 0, total_charge: 0, polarizability: 0, total_spin: 0, forces: 10, charges: 0, magmom: 0, magforces: 0]
-2026-11-11 21:31:17.860 INFO: No validation set provided, splitting training data instead.
-2026-11-11 21:31:17.860 INFO: Using random 20% of training set for validation with following indices: [3, 9]
-2026-11-11 21:31:17.860 INFO: Random Split Training set [energy: 8, stress: 0, virials: 0, dipole components: 0, head: 8, elec_temp: 0, total_charge: 0, polarizability: 0, total_spin: 0, forces: 8, charges: 0, magmom: 0, magforces: 0]
-2026-11-11 21:31:17.860 INFO: Random Split Validation set [energy: 2, stress: 0, virials: 0, dipole components: 0, head: 2, elec_temp: 0, total_charge: 0, polarizability: 0, total_spin: 0, forces: 2, charges: 0, magmom: 0, magforces: 0]
-2026-11-11 21:31:17.860 INFO: Total number of configurations: train=8, valid=2, tests=[],
-2026-11-11 21:31:17.861 WARNING: Validation batch size (10) is larger than the number of validation data (2)
-2026-11-11 21:31:17.861 INFO: Atomic Numbers used: [np.int64(29)]
-2026-11-11 21:31:17.861 INFO: Estimating E0s from foundation model predictions on training data
-2026-11-11 21:31:17.862 INFO: Estimating E0s using foundation model on 8 configurations with 1 elements
-2026-11-11 21:31:18.341 INFO: ================================================================================
-2026-11-11 21:31:18.341 INFO: E0 ESTIMATION FROM FOUNDATION MODEL
-2026-11-11 21:31:18.341 INFO: ================================================================================
-2026-11-11 21:31:18.341 INFO: Rank of system: 1/1
-2026-11-11 21:31:18.341 INFO: Residuals: [1.58467631]
-2026-11-11 21:31:18.341 INFO: Element 29: foundation E0 = -3.252073 eV, correction = -1305.472223 eV, new E0 = -1308.724295 eV
-2026-11-11 21:31:18.341 INFO: ================================================================================
-2026-11-11 21:31:18.341 INFO: FIT STATISTICS
-2026-11-11 21:31:18.342 INFO: ================================================================================
-2026-11-11 21:31:18.342 INFO: RMSE before E0 correction: 2610.944483 eV
-2026-11-11 21:31:18.342 INFO: RMSE after E0 correction:  0.445067 eV
-2026-11-11 21:31:18.342 INFO: MAE before E0 correction:  2610.944445 eV
-2026-11-11 21:31:18.342 INFO: MAE after E0 correction:   0.399215 eV
-2026-11-11 21:31:18.342 INFO: ================================================================================
-2026-11-11 21:31:18.342 INFO: Atomic Energies used (z: eV) for head Default: {29: -1308.7242954235312}
-2026-11-11 21:31:18.342 INFO: Processing datasets for head 'Default'
-2026-11-11 21:31:18.347 DEBUG: Successfully loaded dataset from ASE files: ['results/Cu_all_data.xyz']
-2026-11-11 21:31:18.347 INFO: Combining 1 list datasets for head 'Default'
-2026-11-11 21:31:18.349 INFO: Head 'Default' training dataset size: 8
-2026-11-11 21:31:18.349 INFO: Computing average number of neighbors
-2026-11-11 21:31:18.364 WARNING: Unusual average number of neighbors: 1.0
-2026-11-11 21:31:18.365 INFO: During training the following quantities will be reported: energy, forces
-2026-11-11 21:31:18.365 INFO: ===========MODEL DETAILS===========
-2026-11-11 21:31:18.373 INFO: Loading FOUNDATION model
-2026-11-11 21:31:18.374 INFO: Using filtered elements: [np.int64(29)]
-2026-11-11 21:31:18.374 INFO: Model configuration extracted from foundation model
-2026-11-11 21:31:18.374 INFO: Using weighted loss function for fine-tuning
-2026-11-11 21:31:18.374 INFO: Message passing with hidden irreps 128x0e)
-2026-11-11 21:31:18.374 INFO: 2 layers, each with correlation order: 3 (body order: 4) and spherical harmonics up to: l=3
-2026-11-11 21:31:18.374 INFO: Radial cutoff: 6.0 A (total receptive field for each atom: 12.0 A)
-2026-11-11 21:31:18.374 INFO: Distance transform for radial basis functions: None
-2026-11-11 21:31:19.265 INFO: ===========OPTIMIZER INFORMATION===========
-2026-11-11 21:31:19.265 INFO: Using ADAM as parameter optimizer
-2026-11-11 21:31:19.265 INFO: Batch size: 1
-2026-11-11 21:31:19.265 INFO: Number of gradient updates: 400
-2026-11-11 21:31:19.266 INFO: Learning rate: 0.001, weight decay: 5e-07
-2026-11-11 21:31:19.266 INFO: WeightedEnergyForcesLoss(energy_weight=1.000, forces_weight=10.000)
-2026-11-11 21:31:19.267 INFO: === Layer's learning rates ===
-2026-11-11 21:31:19.267 INFO: Param group 0: lr = 0.001
-2026-11-11 21:31:19.267 INFO: Param group 1: lr = 0.001
-2026-11-11 21:31:19.268 INFO: Param group 2: lr = 0.001
-2026-11-11 21:31:19.268 INFO: Param group 3: lr = 0.001
-2026-11-11 21:31:19.268 INFO: Param group 4: lr = 0.001
-2026-11-11 21:31:19.268 INFO: Using gradient clipping with tolerance=10.000
-2026-11-11 21:31:19.268 INFO: 
-2026-11-11 21:31:19.268 INFO: ===========TRAINING===========
-2026-11-11 21:31:19.268 INFO: Started training, reporting errors on validation set
-2026-11-11 21:31:19.268 INFO: Loss metrics on validation set
-2026-11-11 21:31:19.320 INFO: Initial: head: Default, loss=0.43899900, RMSE_E_per_atom=  196.87 meV, RMSE_F=  289.70 meV / A
-2026-11-11 21:31:19.759 INFO: Epoch 0: head: Default, loss=0.09117109, RMSE_E_per_atom=  360.42 meV, RMSE_F=   72.42 meV / A
-2026-11-11 21:31:19.760 DEBUG: Saving checkpoint: mace_output/checkpoints/Cu_all_finetune_run-123_epoch-0.pt
-2026-11-11 21:31:21.690 INFO: Epoch 5: head: Default, loss=0.29239741, RMSE_E_per_atom=   27.03 meV, RMSE_F=  241.67 meV / A
-2026-11-11 21:31:23.503 INFO: Epoch 10: head: Default, loss=0.37248898, RMSE_E_per_atom=  157.71 meV, RMSE_F=  268.35 meV / A
-2026-11-11 21:31:25.381 INFO: Epoch 15: head: Default, loss=0.53959388, RMSE_E_per_atom=   22.99 meV, RMSE_F=  328.43 meV / A
-2026-11-11 21:31:27.663 INFO: Epoch 20: head: Default, loss=0.68843138, RMSE_E_per_atom=   91.44 meV, RMSE_F=  369.93 meV / A
-2026-11-11 21:31:29.516 INFO: Epoch 25: head: Default, loss=0.66573203, RMSE_E_per_atom=   45.68 meV, RMSE_F=  364.61 meV / A
-2026-11-11 21:31:31.440 INFO: Epoch 30: head: Default, loss=0.85281032, RMSE_E_per_atom=   91.85 meV, RMSE_F=  411.97 meV / A
-2026-11-11 21:31:33.500 INFO: Epoch 35: head: Default, loss=0.81927437, RMSE_E_per_atom=   28.69 meV, RMSE_F=  404.69 meV / A
-2026-11-11 21:31:35.171 INFO: Epoch 40: head: Default, loss=0.89369446, RMSE_E_per_atom=   41.35 meV, RMSE_F=  422.57 meV / A
-2026-11-11 21:31:36.736 INFO: Epoch 45: head: Default, loss=0.87484866, RMSE_E_per_atom=   57.87 meV, RMSE_F=  417.89 meV / A
-2026-11-11 21:31:38.059 INFO: Training complete
-2026-11-11 21:31:38.059 INFO: 
-2026-11-11 21:31:38.059 INFO: ===========RESULTS===========
-2026-11-11 21:31:38.060 INFO: Loading checkpoint: mace_output/checkpoints/Cu_all_finetune_run-123_epoch-0.pt
-2026-11-11 21:31:38.073 INFO: Loaded Stage one model from epoch 0 for evaluation
-2026-11-11 21:31:38.073 INFO: Saving model to mace_output/checkpoints/Cu_all_finetune_run-123.model
-2026-11-11 21:31:38.190 WARNING: MACE v1.0 removes the _compiled.model / _stagetwo_compiled.model side artifacts: a deliberate, recorded removal: v1 checkpoints are neutral-format only and deployment artifacts come solely from the v1 export command. See the MACE v1.0 migration guide.
-2026-11-11 21:31:38.190 INFO: Compiling model, saving metadata to mace_output/models/Cu_all_finetune_compiled.model
-2026-11-11 21:31:38.685 INFO: Computing metrics for training, validation, and test sets
-2026-11-11 21:31:38.685 INFO: Skipping evaluation for heads: ['pt_head']
-2026-11-11 21:31:38.686 INFO: Evaluating train_Default ...
-2026-11-11 21:31:38.808 INFO: Evaluating valid_Default ...
-2026-11-11 21:31:38.844 INFO: Error-table on TRAIN and VALID:
+2026-11-11 23:10:50.809 INFO: ===========VERIFYING SETTINGS===========
+2026-11-11 23:10:50.809 INFO: MACE version: 0.3.17
+2026-11-11 23:10:50.809 DEBUG: Configuration: Namespace(config=None, name='Cu_all_finetune', seed=123, work_dir='.', log_dir='mace_output/logs', model_dir='mace_output/models', checkpoints_dir='mace_output/checkpoints', results_dir='mace_output/results', downloads_dir='./downloads', device='cpu', default_dtype='float32', distributed=False, launcher='slurm', log_level='INFO', plot=True, plot_frequency=0, plot_interaction_e=False, error_table='PerAtomRMSE', model='MACE', r_max=5.0, radial_type='bessel', num_radial_basis=8, num_cutoff_basis=5, pair_repulsion=False, distance_transform='None', apply_cutoff=True, use_last_readout_only=False, use_embedding_readout=False, interaction='RealAgnosticResidualInteractionBlock', interaction_first='RealAgnosticResidualInteractionBlock', max_ell=3, correlation=3, use_reduced_cg=False, use_so3=False, use_agnostic_product=False, num_interactions=2, MLP_irreps='16x0e', radial_MLP='[64, 64, 64]', hidden_irreps='128x0e + 128x1o', edge_irreps=None, use_edge_irreps_first=False, num_channels=128, max_L=1, gate='silu', kspace_cutoff_factor=1.5, atomic_multipoles_max_l=0, atomic_multipoles_smearing_width=1.0, field_feature_max_l=0, field_feature_widths='[1.0]', field_feature_norms=None, num_recursion_steps=1, field_si=False, include_electrostatic_self_interaction=False, add_local_electron_energy=False, quadrupole_feature_corrections=False, return_electrostatic_potentials=False, field_norm_factor=0.02, fixedpoint_update_config=None, field_readout_config=None, scaling='rms_forces_scaling', avg_num_neighbors=1, compute_avg_num_neighbors=True, compute_stress=False, compute_forces=True, compute_polarizability=False, compute_atomic_dipole=False, compute_magforces=False, train_file='results/Cu_all_data.xyz', valid_file=None, valid_fraction=0.2, test_file=None, test_dir=None, multi_processed_test=False, num_workers=0, pin_memory=True, atomic_numbers=None, mean=None, std=None, statistics_file=None, les_arguments=None, E0s='estimated', pseudolabel_replay=False, pseudolabel_replay_compute_stress=False, heads=None, multiheads_finetuning=False, foundation_head=None, weight_pt_head=1.0, real_pt_data_ratio_threshold=0.1, num_samples_pt=10000, force_mh_ft_lr=False, subselect_pt='random', filter_type_pt='none', allow_random_padding_pt=True, pt_train_file=None, pt_valid_file=None, foundation_model_elements=False, keep_isolated_atoms=False, lora=False, lora_rank=4, lora_alpha=1.0, energy_key='energy', forces_key='forces', virials_key='REF_virials', stress_key='REF_stress', dipole_key='dipole', polarizability_key='polarizability', magmom_key='REF_magmom', magforces_key='REF_magforces', head_key='head', charges_key='REF_charges', elec_temp_key='elec_temp', total_spin_key='total_spin', total_charge_key='total_charge', embedding_specs=None, skip_evaluate_heads='pt_head', loss='weighted', forces_weight=10.0, swa_forces_weight=100.0, magforces_weight=100.0, swa_magforces_weight=100.0, energy_weight=1.0, swa_energy_weight=1000.0, virials_weight=1.0, swa_virials_weight=10.0, stress_weight=1.0, swa_stress_weight=10.0, dipole_weight=1.0, swa_dipole_weight=1.0, swa_polarizability_weight=1.0, polarizability_weight=1.0, config_type_weights='{"Default":1.0}', huber_delta=0.01, optimizer='adam', beta=0.9, beta1_schedulefree=0.9, beta2_schedulefree=0.98, warmup_steps_schedulefree=0, batch_size=1, valid_batch_size=10, lr=0.001, swa_lr=0.001, weight_decay=5e-07, lr_params_factors='{"embedding_lr_factor": 1.0, "interactions_lr_factor": 1.0, "products_lr_factor": 1.0, "readouts_lr_factor": 1.0}', freeze=None, amsgrad=True, scheduler='ReduceLROnPlateau', lr_factor=0.8, scheduler_patience=50, lr_scheduler_gamma=0.9993, swa=False, start_swa=None, lbfgs=False, ema=False, ema_decay=0.99, max_num_epochs=50, patience=2048, foundation_model='small', foundation_model_kwargs='{}', foundation_model_readout=True, finetune_dipoles_polarizabilities=False, eval_interval=5, keep_checkpoints=False, save_all_checkpoints=False, restart_latest=False, save_cpu=False, clip_grad=10.0, dry_run=False, enable_cueq=False, only_cueq=False, cueq_conv_fusion=False, enable_oeq=False, wandb=False, wandb_dir=None, wandb_project='', wandb_entity='', wandb_name='', wandb_log_hypers=['num_channels', 'max_L', 'correlation', 'lr', 'swa_lr', 'weight_decay', 'batch_size', 'max_num_epochs', 'start_swa', 'energy_weight', 'forces_weight'], num_mag_radial_basis_one_body=10, m_max=None, max_m_ell=3, num_mag_radial_basis=8, use_magmom_one_body=False, train_one_body_contribution=True, data_aug_magmom=False, data_aug_magmom_mode='non-soc', key_specification=KeySpecification(info_keys={'energy': 'energy', 'stress': 'REF_stress', 'virials': 'REF_virials', 'dipole': 'dipole', 'head': 'head', 'elec_temp': 'elec_temp', 'total_charge': 'total_charge', 'polarizability': 'polarizability', 'total_spin': 'total_spin'}, arrays_keys={'forces': 'forces', 'charges': 'REF_charges', 'magmom': 'REF_magmom', 'magforces': 'REF_magforces'}))
+2026-11-11 23:10:50.809 INFO: Using CPU
+2026-11-11 23:10:51.002 DEBUG: Popen(['git', 'version'], cwd=/home/papa/cp2k-mace-project, stdin=None, shell=False, universal_newlines=False)
+2026-11-11 23:10:51.016 DEBUG: Popen(['git', 'version'], cwd=/home/papa/cp2k-mace-project, stdin=None, shell=False, universal_newlines=False)
+2026-11-11 23:10:51.017 DEBUG: sys.platform='linux', git_executable='git'
+2026-11-11 23:10:51.019 DEBUG: Popen(['git', 'cat-file', '--batch-check'], cwd=/home/papa/cp2k-mace-project, stdin=<valid stream>, shell=False, universal_newlines=False)
+2026-11-11 23:10:51.021 DEBUG: Current Git commit: 20bf0c580072ef9d9510464de20de9fab0e14401
+2026-11-11 23:10:51.021 INFO: Using foundation model mace small as initial checkpoint.
+2026-11-11 23:10:51.162 INFO: Using CPU
+2026-11-11 23:10:51.163 INFO: Using head Default out of  ['Default']
+2026-11-11 23:10:51.163 WARNING: Default dtype float32 does not match model dtype float64, converting models to float32.
+2026-11-11 23:10:51.196 INFO: ===========LOADING INPUT DATA===========
+2026-11-11 23:10:51.196 INFO: Using heads: ['Default']
+2026-11-11 23:10:51.196 INFO: Using the key specifications to parse data:
+2026-11-11 23:10:51.196 INFO: Default: KeySpecification(info_keys={'energy': 'energy', 'stress': 'REF_stress', 'virials': 'REF_virials', 'dipole': 'dipole', 'head': 'head', 'elec_temp': 'elec_temp', 'total_charge': 'total_charge', 'polarizability': 'polarizability', 'total_spin': 'total_spin'}, arrays_keys={'forces': 'forces', 'charges': 'REF_charges', 'magmom': 'REF_magmom', 'magforces': 'REF_magforces'})
+2026-11-11 23:10:51.196 INFO: =============    Processing head Default     ===========
+2026-11-11 23:10:51.197 DEBUG: Loading training file: results/Cu_all_data.xyz
+2026-11-11 23:10:51.207 WARNING: Since ASE version 3.23.0b1, using energy_key 'energy' is no longer safe when communicating between MACE and ASE. We recommend using a different key, rewriting 'energy' to 'REF_energy'. You need to use --energy_key='REF_energy' to specify the chosen key name.
+2026-11-11 23:10:51.209 WARNING: Since ASE version 3.23.0b1, using forces_key 'forces' is no longer safe when communicating between MACE and ASE. We recommend using a different key, rewriting 'forces' to 'REF_forces'. You need to use --forces_key='REF_forces' to specify the chosen key name.
+2026-11-11 23:10:51.210 INFO: Training set 1/1 [energy: 10, stress: 0, virials: 0, dipole components: 0, head: 10, elec_temp: 0, total_charge: 0, polarizability: 0, total_spin: 0, forces: 10, charges: 0, magmom: 0, magforces: 0]
+2026-11-11 23:10:51.210 INFO: Total Training set [energy: 10, stress: 0, virials: 0, dipole components: 0, head: 10, elec_temp: 0, total_charge: 0, polarizability: 0, total_spin: 0, forces: 10, charges: 0, magmom: 0, magforces: 0]
+2026-11-11 23:10:51.210 INFO: No validation set provided, splitting training data instead.
+2026-11-11 23:10:51.210 INFO: Using random 20% of training set for validation with following indices: [3, 9]
+2026-11-11 23:10:51.211 INFO: Random Split Training set [energy: 8, stress: 0, virials: 0, dipole components: 0, head: 8, elec_temp: 0, total_charge: 0, polarizability: 0, total_spin: 0, forces: 8, charges: 0, magmom: 0, magforces: 0]
+2026-11-11 23:10:51.211 INFO: Random Split Validation set [energy: 2, stress: 0, virials: 0, dipole components: 0, head: 2, elec_temp: 0, total_charge: 0, polarizability: 0, total_spin: 0, forces: 2, charges: 0, magmom: 0, magforces: 0]
+2026-11-11 23:10:51.211 INFO: Total number of configurations: train=8, valid=2, tests=[],
+2026-11-11 23:10:51.211 WARNING: Validation batch size (10) is larger than the number of validation data (2)
+2026-11-11 23:10:51.211 INFO: Atomic Numbers used: [np.int64(29)]
+2026-11-11 23:10:51.211 INFO: Estimating E0s from foundation model predictions on training data
+2026-11-11 23:10:51.212 INFO: Estimating E0s using foundation model on 8 configurations with 1 elements
+2026-11-11 23:10:51.665 INFO: ================================================================================
+2026-11-11 23:10:51.665 INFO: E0 ESTIMATION FROM FOUNDATION MODEL
+2026-11-11 23:10:51.665 INFO: ================================================================================
+2026-11-11 23:10:51.665 INFO: Rank of system: 1/1
+2026-11-11 23:10:51.666 INFO: Residuals: [1.58467631]
+2026-11-11 23:10:51.666 INFO: Element 29: foundation E0 = -3.252073 eV, correction = -1305.472223 eV, new E0 = -1308.724295 eV
+2026-11-11 23:10:51.666 INFO: ================================================================================
+2026-11-11 23:10:51.666 INFO: FIT STATISTICS
+2026-11-11 23:10:51.666 INFO: ================================================================================
+2026-11-11 23:10:51.666 INFO: RMSE before E0 correction: 2610.944483 eV
+2026-11-11 23:10:51.666 INFO: RMSE after E0 correction:  0.445067 eV
+2026-11-11 23:10:51.666 INFO: MAE before E0 correction:  2610.944445 eV
+2026-11-11 23:10:51.666 INFO: MAE after E0 correction:   0.399215 eV
+2026-11-11 23:10:51.666 INFO: ================================================================================
+2026-11-11 23:10:51.667 INFO: Atomic Energies used (z: eV) for head Default: {29: -1308.7242954235312}
+2026-11-11 23:10:51.667 INFO: Processing datasets for head 'Default'
+2026-11-11 23:10:51.672 DEBUG: Successfully loaded dataset from ASE files: ['results/Cu_all_data.xyz']
+2026-11-11 23:10:51.672 INFO: Combining 1 list datasets for head 'Default'
+2026-11-11 23:10:51.673 INFO: Head 'Default' training dataset size: 8
+2026-11-11 23:10:51.674 INFO: Computing average number of neighbors
+2026-11-11 23:10:51.698 WARNING: Unusual average number of neighbors: 1.0
+2026-11-11 23:10:51.699 INFO: During training the following quantities will be reported: energy, forces
+2026-11-11 23:10:51.699 INFO: ===========MODEL DETAILS===========
+2026-11-11 23:10:51.712 INFO: Loading FOUNDATION model
+2026-11-11 23:10:51.712 INFO: Using filtered elements: [np.int64(29)]
+2026-11-11 23:10:51.712 INFO: Model configuration extracted from foundation model
+2026-11-11 23:10:51.712 INFO: Using weighted loss function for fine-tuning
+2026-11-11 23:10:51.712 INFO: Message passing with hidden irreps 128x0e)
+2026-11-11 23:10:51.712 INFO: 2 layers, each with correlation order: 3 (body order: 4) and spherical harmonics up to: l=3
+2026-11-11 23:10:51.712 INFO: Radial cutoff: 6.0 A (total receptive field for each atom: 12.0 A)
+2026-11-11 23:10:51.713 INFO: Distance transform for radial basis functions: None
+2026-11-11 23:10:52.615 INFO: ===========OPTIMIZER INFORMATION===========
+2026-11-11 23:10:52.616 INFO: Using ADAM as parameter optimizer
+2026-11-11 23:10:52.616 INFO: Batch size: 1
+2026-11-11 23:10:52.616 INFO: Number of gradient updates: 400
+2026-11-11 23:10:52.616 INFO: Learning rate: 0.001, weight decay: 5e-07
+2026-11-11 23:10:52.616 INFO: WeightedEnergyForcesLoss(energy_weight=1.000, forces_weight=10.000)
+2026-11-11 23:10:52.617 INFO: === Layer's learning rates ===
+2026-11-11 23:10:52.617 INFO: Param group 0: lr = 0.001
+2026-11-11 23:10:52.617 INFO: Param group 1: lr = 0.001
+2026-11-11 23:10:52.617 INFO: Param group 2: lr = 0.001
+2026-11-11 23:10:52.617 INFO: Param group 3: lr = 0.001
+2026-11-11 23:10:52.617 INFO: Param group 4: lr = 0.001
+2026-11-11 23:10:52.618 INFO: Using gradient clipping with tolerance=10.000
+2026-11-11 23:10:52.618 INFO: 
+2026-11-11 23:10:52.618 INFO: ===========TRAINING===========
+2026-11-11 23:10:52.618 INFO: Started training, reporting errors on validation set
+2026-11-11 23:10:52.618 INFO: Loss metrics on validation set
+2026-11-11 23:10:52.670 INFO: Initial: head: Default, loss=0.43899900, RMSE_E_per_atom=  196.87 meV, RMSE_F=  289.70 meV / A
+2026-11-11 23:10:53.025 INFO: Epoch 0: head: Default, loss=0.09117109, RMSE_E_per_atom=  360.42 meV, RMSE_F=   72.42 meV / A
+2026-11-11 23:10:53.026 DEBUG: Saving checkpoint: mace_output/checkpoints/Cu_all_finetune_run-123_epoch-0.pt
+2026-11-11 23:10:54.928 INFO: Epoch 5: head: Default, loss=0.29239741, RMSE_E_per_atom=   27.03 meV, RMSE_F=  241.67 meV / A
+2026-11-11 23:10:56.584 INFO: Epoch 10: head: Default, loss=0.37248898, RMSE_E_per_atom=  157.71 meV, RMSE_F=  268.35 meV / A
+2026-11-11 23:10:58.161 INFO: Epoch 15: head: Default, loss=0.53959388, RMSE_E_per_atom=   22.99 meV, RMSE_F=  328.43 meV / A
+2026-11-11 23:10:59.754 INFO: Epoch 20: head: Default, loss=0.68843138, RMSE_E_per_atom=   91.44 meV, RMSE_F=  369.93 meV / A
+2026-11-11 23:11:01.430 INFO: Epoch 25: head: Default, loss=0.66573203, RMSE_E_per_atom=   45.68 meV, RMSE_F=  364.61 meV / A
+2026-11-11 23:11:03.176 INFO: Epoch 30: head: Default, loss=0.85281032, RMSE_E_per_atom=   91.85 meV, RMSE_F=  411.97 meV / A
+2026-11-11 23:11:04.740 INFO: Epoch 35: head: Default, loss=0.81927437, RMSE_E_per_atom=   28.69 meV, RMSE_F=  404.69 meV / A
+2026-11-11 23:11:06.400 INFO: Epoch 40: head: Default, loss=0.89369446, RMSE_E_per_atom=   41.35 meV, RMSE_F=  422.57 meV / A
+2026-11-11 23:11:08.014 INFO: Epoch 45: head: Default, loss=0.87484866, RMSE_E_per_atom=   57.87 meV, RMSE_F=  417.89 meV / A
+2026-11-11 23:11:09.724 INFO: Training complete
+2026-11-11 23:11:09.724 INFO: 
+2026-11-11 23:11:09.724 INFO: ===========RESULTS===========
+2026-11-11 23:11:09.725 INFO: Loading checkpoint: mace_output/checkpoints/Cu_all_finetune_run-123_epoch-0.pt
+2026-11-11 23:11:09.740 INFO: Loaded Stage one model from epoch 0 for evaluation
+2026-11-11 23:11:09.741 INFO: Saving model to mace_output/checkpoints/Cu_all_finetune_run-123.model
+2026-11-11 23:11:09.858 WARNING: MACE v1.0 removes the _compiled.model / _stagetwo_compiled.model side artifacts: a deliberate, recorded removal: v1 checkpoints are neutral-format only and deployment artifacts come solely from the v1 export command. See the MACE v1.0 migration guide.
+2026-11-11 23:11:09.859 INFO: Compiling model, saving metadata to mace_output/models/Cu_all_finetune_compiled.model
+2026-11-11 23:11:10.352 INFO: Computing metrics for training, validation, and test sets
+2026-11-11 23:11:10.352 INFO: Skipping evaluation for heads: ['pt_head']
+2026-11-11 23:11:10.352 INFO: Evaluating train_Default ...
+2026-11-11 23:11:10.478 INFO: Evaluating valid_Default ...
+2026-11-11 23:11:10.514 INFO: Error-table on TRAIN and VALID:
 +---------------+---------------------+------------------+-------------------+
 |  config_type  | RMSE E / meV / atom | RMSE F / meV / A | relative F RMSE % |
 +---------------+---------------------+------------------+-------------------+
 | train_Default |          272.9      |        535.4     |         61.33     |
 | valid_Default |          360.4      |         72.4     |          9.94     |
 +---------------+---------------------+------------------+-------------------+
-2026-11-11 21:31:38.844 DEBUG: Running inference on train_Default dataset
-2026-11-11 21:31:38.970 DEBUG: Running inference on valid_Default dataset
-2026-11-11 21:31:39.161 DEBUG: STREAM b'IHDR' 16 13
-2026-11-11 21:31:39.161 DEBUG: STREAM b'sBIT' 41 4
-2026-11-11 21:31:39.161 DEBUG: b'sBIT' 41 4 (unknown)
-2026-11-11 21:31:39.161 DEBUG: STREAM b'pHYs' 57 9
-2026-11-11 21:31:39.161 DEBUG: STREAM b'IDAT' 78 1189
-2026-11-11 21:31:39.163 DEBUG: STREAM b'IHDR' 16 13
-2026-11-11 21:31:39.164 DEBUG: STREAM b'sBIT' 41 4
-2026-11-11 21:31:39.164 DEBUG: b'sBIT' 41 4 (unknown)
-2026-11-11 21:31:39.164 DEBUG: STREAM b'pHYs' 57 9
-2026-11-11 21:31:39.164 DEBUG: STREAM b'IDAT' 78 2994
-2026-11-11 21:31:39.201 DEBUG: STREAM b'IHDR' 16 13
-2026-11-11 21:31:39.201 DEBUG: STREAM b'sBIT' 41 4
-2026-11-11 21:31:39.201 DEBUG: b'sBIT' 41 4 (unknown)
-2026-11-11 21:31:39.201 DEBUG: STREAM b'pHYs' 57 9
-2026-11-11 21:31:39.201 DEBUG: STREAM b'IDAT' 78 374
-2026-11-11 21:31:39.203 DEBUG: STREAM b'IHDR' 16 13
-2026-11-11 21:31:39.203 DEBUG: STREAM b'sBIT' 41 4
-2026-11-11 21:31:39.203 DEBUG: b'sBIT' 41 4 (unknown)
-2026-11-11 21:31:39.203 DEBUG: STREAM b'pHYs' 57 9
-2026-11-11 21:31:39.204 DEBUG: STREAM b'IDAT' 78 286
-2026-11-11 21:31:39.205 DEBUG: STREAM b'IHDR' 16 13
-2026-11-11 21:31:39.205 DEBUG: STREAM b'sBIT' 41 4
-2026-11-11 21:31:39.205 DEBUG: b'sBIT' 41 4 (unknown)
-2026-11-11 21:31:39.205 DEBUG: STREAM b'pHYs' 57 9
-2026-11-11 21:31:39.205 DEBUG: STREAM b'IDAT' 78 263
-2026-11-11 21:31:39.207 DEBUG: STREAM b'IHDR' 16 13
-2026-11-11 21:31:39.207 DEBUG: STREAM b'sBIT' 41 4
-2026-11-11 21:31:39.207 DEBUG: b'sBIT' 41 4 (unknown)
-2026-11-11 21:31:39.207 DEBUG: STREAM b'pHYs' 57 9
-2026-11-11 21:31:39.207 DEBUG: STREAM b'IDAT' 78 387
-2026-11-11 21:31:39.208 DEBUG: STREAM b'IHDR' 16 13
-2026-11-11 21:31:39.208 DEBUG: STREAM b'sBIT' 41 4
-2026-11-11 21:31:39.208 DEBUG: b'sBIT' 41 4 (unknown)
-2026-11-11 21:31:39.208 DEBUG: STREAM b'pHYs' 57 9
-2026-11-11 21:31:39.208 DEBUG: STREAM b'IDAT' 78 436
-2026-11-11 21:31:39.209 DEBUG: STREAM b'IHDR' 16 13
-2026-11-11 21:31:39.209 DEBUG: STREAM b'sBIT' 41 4
-2026-11-11 21:31:39.209 DEBUG: b'sBIT' 41 4 (unknown)
-2026-11-11 21:31:39.209 DEBUG: STREAM b'pHYs' 57 9
-2026-11-11 21:31:39.210 DEBUG: STREAM b'IDAT' 78 351
-2026-11-11 21:31:39.211 DEBUG: STREAM b'IHDR' 16 13
-2026-11-11 21:31:39.211 DEBUG: STREAM b'sBIT' 41 4
-2026-11-11 21:31:39.211 DEBUG: b'sBIT' 41 4 (unknown)
-2026-11-11 21:31:39.211 DEBUG: STREAM b'pHYs' 57 9
-2026-11-11 21:31:39.211 DEBUG: STREAM b'IDAT' 78 364
-2026-11-11 21:31:40.274 INFO: Done
+2026-11-11 23:11:10.514 DEBUG: Running inference on train_Default dataset
+2026-11-11 23:11:10.676 DEBUG: Running inference on valid_Default dataset
+2026-11-11 23:11:10.832 DEBUG: STREAM b'IHDR' 16 13
+2026-11-11 23:11:10.832 DEBUG: STREAM b'sBIT' 41 4
+2026-11-11 23:11:10.832 DEBUG: b'sBIT' 41 4 (unknown)
+2026-11-11 23:11:10.832 DEBUG: STREAM b'pHYs' 57 9
+2026-11-11 23:11:10.832 DEBUG: STREAM b'IDAT' 78 1189
+2026-11-11 23:11:10.835 DEBUG: STREAM b'IHDR' 16 13
+2026-11-11 23:11:10.835 DEBUG: STREAM b'sBIT' 41 4
+2026-11-11 23:11:10.835 DEBUG: b'sBIT' 41 4 (unknown)
+2026-11-11 23:11:10.835 DEBUG: STREAM b'pHYs' 57 9
+2026-11-11 23:11:10.835 DEBUG: STREAM b'IDAT' 78 2994
+2026-11-11 23:11:10.861 DEBUG: STREAM b'IHDR' 16 13
+2026-11-11 23:11:10.861 DEBUG: STREAM b'sBIT' 41 4
+2026-11-11 23:11:10.861 DEBUG: b'sBIT' 41 4 (unknown)
+2026-11-11 23:11:10.861 DEBUG: STREAM b'pHYs' 57 9
+2026-11-11 23:11:10.862 DEBUG: STREAM b'IDAT' 78 374
+2026-11-11 23:11:10.863 DEBUG: STREAM b'IHDR' 16 13
+2026-11-11 23:11:10.863 DEBUG: STREAM b'sBIT' 41 4
+2026-11-11 23:11:10.863 DEBUG: b'sBIT' 41 4 (unknown)
+2026-11-11 23:11:10.863 DEBUG: STREAM b'pHYs' 57 9
+2026-11-11 23:11:10.863 DEBUG: STREAM b'IDAT' 78 286
+2026-11-11 23:11:10.865 DEBUG: STREAM b'IHDR' 16 13
+2026-11-11 23:11:10.865 DEBUG: STREAM b'sBIT' 41 4
+2026-11-11 23:11:10.865 DEBUG: b'sBIT' 41 4 (unknown)
+2026-11-11 23:11:10.865 DEBUG: STREAM b'pHYs' 57 9
+2026-11-11 23:11:10.865 DEBUG: STREAM b'IDAT' 78 263
+2026-11-11 23:11:10.867 DEBUG: STREAM b'IHDR' 16 13
+2026-11-11 23:11:10.867 DEBUG: STREAM b'sBIT' 41 4
+2026-11-11 23:11:10.867 DEBUG: b'sBIT' 41 4 (unknown)
+2026-11-11 23:11:10.867 DEBUG: STREAM b'pHYs' 57 9
+2026-11-11 23:11:10.867 DEBUG: STREAM b'IDAT' 78 387
+2026-11-11 23:11:10.868 DEBUG: STREAM b'IHDR' 16 13
+2026-11-11 23:11:10.868 DEBUG: STREAM b'sBIT' 41 4
+2026-11-11 23:11:10.868 DEBUG: b'sBIT' 41 4 (unknown)
+2026-11-11 23:11:10.868 DEBUG: STREAM b'pHYs' 57 9
+2026-11-11 23:11:10.868 DEBUG: STREAM b'IDAT' 78 436
+2026-11-11 23:11:10.869 DEBUG: STREAM b'IHDR' 16 13
+2026-11-11 23:11:10.869 DEBUG: STREAM b'sBIT' 41 4
+2026-11-11 23:11:10.869 DEBUG: b'sBIT' 41 4 (unknown)
+2026-11-11 23:11:10.869 DEBUG: STREAM b'pHYs' 57 9
+2026-11-11 23:11:10.869 DEBUG: STREAM b'IDAT' 78 351
+2026-11-11 23:11:10.870 DEBUG: STREAM b'IHDR' 16 13
+2026-11-11 23:11:10.870 DEBUG: STREAM b'sBIT' 41 4
+2026-11-11 23:11:10.870 DEBUG: b'sBIT' 41 4 (unknown)
+2026-11-11 23:11:10.871 DEBUG: STREAM b'pHYs' 57 9
+2026-11-11 23:11:10.871 DEBUG: STREAM b'IDAT' 78 364
+2026-11-11 23:11:11.946 INFO: Done
