@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Модуль поиска глобального минимума энергии кластера Cu_n с помощью MACE.
-Проходит по всем структурам в xyz_path, оптимизирует каждую BFGS,
-выбирает структуру с наименьшей финальной энергией.
+Модуль поиска глобального минимума для каждого размера кластера.
+Проходит по всем структурам в xyz_path, группирует по числу атомов,
+оптимизирует каждую BFGS, выбирает структуру с минимальной энергией
+для каждого n_atoms.
 
 Может использоваться как:
   - самостоятельный скрипт: python find_minimum.py
@@ -13,140 +14,142 @@ import os
 import numpy as np
 from ase.io import read, write
 from ase.optimize import BFGS
-
-from xyz_to_html import structure_to_html
+from mace.calculators import MACECalculator
 
 
 def run_find_minimum(
-    calc,                 # <-- ИСПРАВЛЕНО: принимаем готовый калькулятор
+    calc: MACECalculator,
     xyz_path: str,
     output_xyz: str,
     logfile: str,
     fmax: float = 0.01,
     steps: int = 100,
-    make_html: bool = True,
 ):
     """
-    Оптимизирует каждую структуру из xyz_path с помощью переданного калькулятора,
-    выбирает структуру с минимальной энергией.
+    Оптимизирует все структуры из xyz_path, группирует по числу атомов,
+    для каждой группы выбирает структуру с минимальной энергией.
 
-    Калькулятор (MACECalculator) создаётся в главном модуле (main.py),
-    где задаётся DEVICE = "cpu"/"gpu".
+    Сохраняет:
+      - <output_xyz без .xyz>_n<N>.xyz для каждой группы N атомов
+      - logfile (лог BFGS для лучшей структуры каждого размера)
+      - <output_xyz без .xyz>_all_optimized.xyz (все оптимизированные)
+
+    Возвращает словарь {n_atoms: {energy, distance, fmax, nsteps, best_index}}.
     """
     all_atoms = read(xyz_path, index=":")
     n_structs = len(all_atoms)
     print(f"Загружено {n_structs} структур из {xyz_path}")
 
-    best_energy = None
-    best_atoms = None
-    best_idx = None
-    best_nsteps = None
+    # Группируем индексы по числу атомов
+    groups = {}
+    for i, atoms in enumerate(all_atoms):
+        n = len(atoms)
+        groups.setdefault(n, []).append(i)
+
+    print(f"Найдено групп по числу атомов: {sorted(groups.keys())}")
 
     base, ext = os.path.splitext(output_xyz)
     all_opt_path = f"{base}_all_optimized{ext}"
 
-    for i, atoms in enumerate(all_atoms):
-        atoms.calc = calc
-        n_atoms = len(atoms)
+    results = {}
 
-        initial_energy = atoms.get_potential_energy()
+    for n_atoms, indices in sorted(groups.items()):
+        print("\n" + "=" * 50)
+        print(f"ОБРАБОТКА КЛАСТЕРОВ С n_atoms = {n_atoms} ({len(indices)} структур)")
+        print("=" * 50)
+
+        best_energy = None
+        best_atoms = None
+        best_idx = None
+        best_nsteps = None
+        best_local_idx = None
+
+        for local_i, global_i in enumerate(indices):
+            atoms = all_atoms[global_i].copy()
+            atoms.calc = calc
+
+            initial_energy = atoms.get_potential_energy()
+
+            log_i = f"{os.path.splitext(logfile)[0]}_n{n_atoms}_struct{local_i:03d}.log"
+            opt = BFGS(atoms, logfile=log_i)
+            opt.run(fmax=fmax, steps=steps)
+
+            final_energy = atoms.get_potential_energy()
+            forces = atoms.get_forces()
+            final_fmax = np.linalg.norm(forces, axis=1).max()
+
+            print(
+                f"  [n={n_atoms}, {local_i+1}/{len(indices)}] "
+                f"E_initial = {initial_energy:.6f} → E_final = {final_energy:.6f} eV, "
+                f"fmax = {final_fmax:.4f} eV/Å, steps = {opt.nsteps}"
+            )
+
+            write(all_opt_path, atoms, append=True)
+
+            if best_energy is None or final_energy < best_energy:
+                best_energy = final_energy
+                best_atoms = atoms.copy()
+                best_atoms.calc = calc
+                best_idx = global_i
+                best_local_idx = local_i
+                best_nsteps = opt.nsteps
+
+        # Сохраняем лучшую структуру для этого n_atoms
+        out_n = f"{base}_n{n_atoms}{ext}"
+        write(out_n, best_atoms)
+
+        # Переименовываем лог лучшей структуры для этого n_atoms
+        best_log_src = f"{os.path.splitext(logfile)[0]}_n{n_atoms}_struct{best_local_idx:03d}.log"
+        best_log_dst = f"{os.path.splitext(logfile)[0]}_n{n_atoms}.log"
+        if os.path.exists(best_log_src):
+            os.replace(best_log_src, best_log_dst)
+
+        # Считаем расстояние только для 2 атомов
         if n_atoms == 2:
-            info = f"r = {np.linalg.norm(atoms.positions[1] - atoms.positions[0]):.4f} Å"
+            d = float(np.linalg.norm(best_atoms.positions[1] - best_atoms.positions[0]))
         else:
-            info = f"n_atoms = {n_atoms}"
+            d = float("nan")
 
-        log_i = f"{os.path.splitext(logfile)[0]}_struct{i:03d}.log"
-        opt = BFGS(atoms, logfile=log_i)
-        opt.run(fmax=fmax, steps=steps)
+        results[n_atoms] = {
+            "energy": best_energy,
+            "distance": d,
+            "fmax": float(np.linalg.norm(best_atoms.get_forces(), axis=1).max()),
+            "nsteps": best_nsteps,
+            "best_global_index": best_idx,
+            "best_local_index": best_local_idx,
+            "n_structures_in_group": len(indices),
+            "output_file": out_n,
+        }
 
-        final_energy = atoms.get_potential_energy()
-        forces = atoms.get_forces()
-        final_fmax = np.linalg.norm(forces, axis=1).max()
-
-        print(
-            f"[{i+1}/{n_structs}] {info}: "
-            f"E_initial = {initial_energy:.6f} eV → "
-            f"E_final = {final_energy:.6f} eV, "
-            f"fmax = {final_fmax:.4f} eV/Å, "
-            f"steps = {opt.nsteps}"
-        )
-
-        write(all_opt_path, atoms, append=True)
-
-        if best_energy is None or final_energy < best_energy:
-            best_energy = final_energy
-            best_atoms = atoms.copy()
-            best_atoms.calc = calc
-            best_idx = i
-            best_nsteps = opt.nsteps
-            
-    if best_atoms is None:
-        raise RuntimeError("Не удалось оптимизировать ни одну структуру")
-
-    write(output_xyz, best_atoms)
-    best_log_src = f"{os.path.splitext(logfile)[0]}_struct{best_idx:03d}.log"
-    if os.path.exists(best_log_src):
-        os.replace(best_log_src, logfile)
-
-    n_atoms = len(best_atoms)
-    if n_atoms == 2:
-        final_distance = np.linalg.norm(best_atoms.positions[1] - best_atoms.positions[0])
-    else:
-        final_distance = float("nan")
-
-    forces = best_atoms.get_forces()
-    final_fmax = np.linalg.norm(forces, axis=1).max()
+        print(f"\n  ГЛОБАЛЬНЫЙ МИНИМУМ для n={n_atoms}:")
+        print(f"    Лучшая структура: {best_local_idx+1} из {len(indices)}")
+        print(f"    Энергия: {best_energy:.6f} eV")
+        if n_atoms == 2:
+            print(f"    Расстояние Cu–Cu: {d:.4f} Å")
+        print(f"    Макс. сила: {results[n_atoms]['fmax']:.6f} eV/Å")
+        print(f"    Сохранено в: {out_n}")
 
     print("\n" + "=" * 50)
-    print("ГЛОБАЛЬНЫЙ МИНИМУМ (в пределах выборки)")
+    print("ИТОГ: ГЛОБАЛЬНЫЕ МИНИМУМЫ ПО РАЗМЕРАМ")
     print("=" * 50)
-    print(f"Лучшая структура: №{best_idx+1} из {n_structs}")
-    print(f"Финальная энергия: {best_energy:.6f} eV")
-    if n_atoms == 2:
-        print(f"Финальное расстояние Cu-Cu: {final_distance:.4f} Å")
-    print(f"Максимальная сила: {final_fmax:.6f} eV/Å")
-    print(f"Число шагов BFGS (лучшая): {best_nsteps}")
-    print(f"\nЛучшая структура сохранена в {output_xyz}")
-    print(f"Все оптимизированные структуры: {all_opt_path}")
-    print(f"Лог BFGS лучшей структуры: {logfile}")
+    for n_atoms in sorted(results.keys()):
+        r = results[n_atoms]
+        print(f"  n={n_atoms}: E = {r['energy']:.6f} eV, "
+              f"fmax = {r['fmax']:.4f} eV/Å, "
+              f"лучшая из {r['n_structures_in_group']} → {r['output_file']}")
 
-    html_path = None
-    if make_html:
-        # find_minimum.py лежит в cp2k-mace-project/src,
-        # значит static_pages = <script_dir>/webserver/static_pages
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        static_pages_dir = os.path.join(script_dir, "webserver", "static_pages")
-        os.makedirs(static_pages_dir, exist_ok=True)
+    print(f"\nВсе оптимизированные структуры: {all_opt_path}")
+    print(f"Логи BFGS: {os.path.splitext(logfile)[0]}_n<N>.log")
 
-        html_name = os.path.splitext(os.path.basename(output_xyz))[0] + ".html"
-        html_path = os.path.join(static_pages_dir, html_name)
-
-        try:
-            structure_to_html(output_xyz, html_path)
-        except Exception as e:
-            print(f"⚠ Не удалось создать HTML-визуализацию: {e}")
-            html_path = None
-
-    return {
-        "best_index": best_idx,
-        "n_structures": n_structs,
-        "final_energy": best_energy,
-        "final_distance": final_distance,
-        "fmax": final_fmax,
-        "nsteps": best_nsteps,
-        "html_path": html_path,
-    }
+    return results
 
 
 # ---------- ЗАПУСК КАК САМОСТОЯТЕЛЬНОГО СКРИПТА ----------
 if __name__ == "__main__":
-    from mace.calculators import MACECalculator
-
     model_path = os.environ.get("MACE_MODEL_PATH")
     xyz_path = os.environ.get("MACE_TRAIN_XYZ")
     output_xyz = os.environ.get("MACE_OUTPUT_XYZ")
     logfile = os.environ.get("MACE_OPT_LOG")
-    device = os.environ.get("MACE_DEVICE", "cpu")  # только для ручного запуска
 
     if not all([model_path, xyz_path, output_xyz, logfile]):
         raise SystemExit(
@@ -156,17 +159,7 @@ if __name__ == "__main__":
 
     calc = MACECalculator(
         model_path=model_path,
-        device=device,
+        device="cpu",
         default_dtype="float32",
     )
-
-    result = run_find_minimum(
-        calc=calc,
-        xyz_path=xyz_path,
-        output_xyz=output_xyz,
-        logfile=logfile,
-    )
-    print(f"\nИтог: E = {result['final_energy']:.6f} eV, "
-          f"лучшая структура №{result['best_index']+1} из {result['n_structures']}")
-    if result.get("html_path"):
-        print(f"HTML-визуализация: {result['html_path']}")
+    run_find_minimum(calc=calc, xyz_path=xyz_path, output_xyz=output_xyz, logfile=logfile)

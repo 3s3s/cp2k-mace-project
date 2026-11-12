@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Скрипт: читает структуры из generated_structures.xyz, для каждой запускает CP2K
-(ENERGY_FORCE), парсит энергию и силы, пишет в cu_all_data.xyz (eV, eV/Å),
-затем запускает MACE fine-tuning и find_minimum.
-Поддерживает возобновление после прерывания.
-Все служебные файлы MACE складываются в MACE_BASE_DIR, который очищается перед запуском.
+Читает структуры из generated_structures.xyz, для каждой запускает CP2K,
+парсит энергию и силы, пишет в Cu_all_data.xyz.
+Возобновление: пропускает те struct_id, которые уже есть в выходном файле.
+Затем запускает MACE fine-tuning, находит глобальные минимумы по размерам,
+считает энергию изолированного атома и энергию связи, сохраняет всё в один .xyz
+и генерирует HTML в папку веб-сервера.
 """
 
 import os
@@ -14,34 +15,29 @@ import time
 import sys
 import shutil
 import glob
+import numpy as np
 
-from find_minimum import run_find_minimum
 from mace.calculators import MACECalculator
 from find_minimum import run_find_minimum
+from xyz_to_html import structure_to_html
 
-# ---------- КОНСТАНТЫ ----------
-# ИСПРАВЛЕНО: вычислительное устройство ("cpu" или "gpu")
 ELEMENT = "Cu"
-DEVICE = "cpu"   # <-- Здесь можно поменять на "gpu"
+DEVICE = "cpu"
 
 CELL_SIZE = 20.0
-CENTER_XY = CELL_SIZE / 2.0
-CENTER_Z = CELL_SIZE / 2.0
 LATTICE_STR = f"{CELL_SIZE} 0.0 0.0 0.0 {CELL_SIZE} 0.0 0.0 0.0 {CELL_SIZE}"
 
 HARTREE_TO_EV = 27.211386
 HARTREE_BOHR_TO_EV_ANG = 51.422067
 
 CP2K_CMD = "cp2k"
-# ИСПРАВЛЕНО: используем путь относительно директории скрипта (но main.py ожидает запуск из корня проекта)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 INPUT_XYZ = os.path.join(SCRIPT_DIR, "..", "results", "generated_structures.xyz")
 OUTPUT_DIR = "results"
 OUTPUT_XYZ_NAME = f"{ELEMENT}_all_data.xyz"
-TIMEOUT_PER_CONFIG = 1800
+TIMEOUT_PER_CONFIG = 3600
 VERBOSE_CP2K = True
 
-# Параметры MACE и каталоги
 MACE_MODEL_NAME = f"{ELEMENT}_all_finetune"
 MACE_BASE_DIR = "mace_output"
 MACE_CHECKPOINTS_DIR = os.path.join(MACE_BASE_DIR, "checkpoints")
@@ -65,7 +61,7 @@ MACE_CMD_BASE = [
     "--lr", "0.001",
     "--max_num_epochs", "50",
     "--eval_interval", "5",
-    "--device", DEVICE,  # <-- ИСПРАВЛЕНО: передаём DEVICE
+    "--device", DEVICE,
     "--default_dtype", "float32",
     "--checkpoints_dir", MACE_CHECKPOINTS_DIR,
     "--model_dir", MACE_MODEL_DIR,
@@ -73,7 +69,6 @@ MACE_CMD_BASE = [
     "--results_dir", MACE_RESULTS_DIR,
 ]
 
-# ---------- ШАБЛОН CP2K ----------
 TEMPLATE = """&GLOBAL
   PROJECT {project}
   RUN_TYPE ENERGY_FORCE
@@ -134,8 +129,7 @@ TEMPLATE = """&GLOBAL
 &END FORCE_EVAL
 """
 
-# ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
-def read_structures(xyz_path):
+def read_structures_with_meta(xyz_path):
     structures = []
     with open(xyz_path, "r", encoding="utf-8", errors="replace") as f:
         while True:
@@ -149,13 +143,49 @@ def read_structures(xyz_path):
                 n_atoms = int(line)
             except ValueError:
                 break
-            f.readline()
+            comment = f.readline()
+            
+            m_dim = re.search(r"dim=(\d+)", comment)
+            dim = int(m_dim.group(1)) if m_dim else -1
+            
+            m_id = re.search(r"struct_id=(\S+)", comment)
+            struct_id = m_id.group(1) if m_id else f"unknown_{len(structures)}"
+
             coords = []
             for _ in range(n_atoms):
                 parts = f.readline().split()
                 coords.append((float(parts[1]), float(parts[2]), float(parts[3])))
-            structures.append(coords)
+            structures.append({
+                "n_atoms": n_atoms,
+                "dim": dim,
+                "struct_id": struct_id,
+                "coords": coords
+            })
     return structures
+
+def get_done_ids(xyz_path):
+    done = set()
+    if not os.path.exists(xyz_path):
+        return done
+    with open(xyz_path, "r", encoding="utf-8", errors="replace") as f:
+        while True:
+            line = f.readline()
+            if not line:
+                break
+            line = line.strip()
+            if line == "":
+                continue
+            try:
+                n_atoms = int(line)
+            except ValueError:
+                break
+            comment = f.readline()
+            m_id = re.search(r"struct_id=(\S+)", comment)
+            if m_id:
+                done.add(m_id.group(1))
+            for _ in range(n_atoms):
+                f.readline()
+    return done
 
 def parse_energy(outfile):
     pattern = re.compile(r"ENERGY\|\s+Total FORCE_EVAL.*?energy \[hartree\]\s+(-?\d+\.\d+)")
@@ -234,15 +264,16 @@ def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir):
             return False
         return proc.returncode == 0
 
-def build_xyz_record(coords, energy_ev, forces_ev_ang):
-    n = len(coords)
+def build_xyz_record(coords, energy_ev, forces_ev_ang, n_atoms, dim, struct_id, extra_comment=""):
     comment = (
         f'Lattice="{LATTICE_STR}" '
         f'Properties=species:S:1:pos:R:3:forces:R:3 '
         f'energy={energy_ev:.8f} '
+        f'n_atoms={n_atoms} dim={dim} struct_id={struct_id} '
+        f'{extra_comment}'
         f'pbc="F F F"'
     )
-    lines = [str(n), comment]
+    lines = [str(n_atoms), comment]
     for (x, y, z), (fx, fy, fz) in zip(coords, forces_ev_ang):
         lines.append(
             f"{ELEMENT} {x:.8f} {y:.8f} {z:.8f} "
@@ -250,31 +281,44 @@ def build_xyz_record(coords, energy_ev, forces_ev_ang):
         )
     return "\n".join(lines) + "\n"
 
-def count_xyz_records(xyz_path):
-    if not os.path.exists(xyz_path):
-        return 0
-    n = 0
-    with open(xyz_path, "r", encoding="utf-8", errors="replace") as f:
-        while True:
-            line = f.readline()
-            if not line:
-                break
-            line = line.strip()
-            if line == "":
-                continue
-            try:
-                n_atoms = int(line)
-            except ValueError:
-                break
-            f.readline()
-            for _ in range(n_atoms):
-                f.readline()
-            n += 1
-    return n
+def calculate_isolated_atom_energy():
+    """Считает энергию изолированного атома Cu в тех же условиях, что и кластеры."""
+    print("\n" + "=" * 60)
+    print("РАСЧЁТ ЭНЕРГИИ ИЗОЛИРОВАННОГО АТОМА Cu")
+    print("=" * 60)
+    
+    project = f"{ELEMENT}_isolated_atom"
+    inp_file = f"{project}.inp"
+    out_file = f"{project}.out"
+    
+    inp_path = os.path.join(OUTPUT_DIR, inp_file)
+    out_path = os.path.join(OUTPUT_DIR, out_file)
+    
+    # Один атом в центре большой ячейки
+    coords_block = f"      {ELEMENT}  {CELL_SIZE/2:.8f}  {CELL_SIZE/2:.8f}  {CELL_SIZE/2:.8f}"
+    
+    with open(inp_path, "w") as f:
+        f.write(TEMPLATE.format(
+            project=project,
+            cell_size=CELL_SIZE,
+            coords_block=coords_block,
+        ))
+    
+    ok = run_cp2k_with_live_log(inp_path, out_path, TIMEOUT_PER_CONFIG, OUTPUT_DIR)
+    if not ok:
+        print("✗ Не удалось посчитать изолированный атом. Энергия связи не будет рассчитана.")
+        return None
+    
+    try:
+        energy_hartree = parse_energy(out_path)
+        energy_ev = energy_hartree * HARTREE_TO_EV
+        print(f"✓ Энергия изолированного атома: {energy_ev:.6f} eV ({energy_hartree:.8f} Hartree)")
+        return energy_ev
+    except Exception as e:
+        print(f"✗ Ошибка парсинга энергии изолированного атома: {e}")
+        return None
 
-# ---------- ОСНОВНОЙ ЦИКЛ ----------
 def main():
-    # ИСПРАВЛЕНО: сообщение о режиме запуска
     print("=" * 60)
     print(f"ЗАПУСК В РЕЖИМЕ: {DEVICE.upper()}")
     print("=" * 60)
@@ -286,26 +330,31 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     xyz_path = os.path.join(OUTPUT_DIR, OUTPUT_XYZ_NAME)
 
-    structures = read_structures(INPUT_XYZ)
+    structures = read_structures_with_meta(INPUT_XYZ)
     print(f"Загружено {len(structures)} структур из {INPUT_XYZ}")
 
-    n_done = count_xyz_records(xyz_path)
-    print(f"Уже записано конфигураций в {xyz_path}: {n_done}")
+    done_ids = get_done_ids(xyz_path)
+    print(f"Уже посчитано уникальных struct_id: {len(done_ids)}")
 
-    mode = "a" if n_done > 0 else "w"
+    mode = "a" if done_ids else "w"
     with open(xyz_path, mode) as xyz:
-        for idx, coords in enumerate(structures):
-            if idx < n_done:
-                print(f"\n[{idx+1}/{len(structures)}] — уже посчитано, пропускаю")
+        for idx, s in enumerate(structures):
+            n_atoms = s["n_atoms"]
+            dim = s["dim"]
+            struct_id = s["struct_id"]
+
+            if struct_id in done_ids:
+                print(f"\n[{idx+1}/{len(structures)}] {struct_id} — уже посчитано, пропускаю")
                 continue
 
-            n_atoms = len(coords)
-            project = f"{ELEMENT}{n_atoms}_{idx:03d}"
+            coords = s["coords"]
+            safe_id = re.sub(r"[^a-zA-Z0-9_]", "_", struct_id)
+            project = f"{ELEMENT}{n_atoms}_{safe_id}"
             inp_file = f"{project}.inp"
             out_file = f"{project}.out"
             force_file = f"{project}.forces"
 
-            print(f"\n[{idx+1}/{len(structures)}] n_atoms={n_atoms}  (проект {project})")
+            print(f"\n[{idx+1}/{len(structures)}] {struct_id} (n={n_atoms}, dim={dim})")
 
             inp_path = os.path.join(OUTPUT_DIR, inp_file)
             out_path = os.path.join(OUTPUT_DIR, out_file)
@@ -349,9 +398,13 @@ def main():
                 for fx, fy, fz in forces
             ]
 
-            xyz.write(build_xyz_record(coords, energy_ev, forces_ev_ang))
+            xyz.write(build_xyz_record(coords, energy_ev, forces_ev_ang, n_atoms, dim, struct_id))
             xyz.flush()
+            done_ids.add(struct_id)
             print(f"  ✓ OK: E = {energy_ev:.6f} eV за {elapsed:.1f} с")
+
+    # ---------- РАСЧЁТ ИЗОЛИРОВАННОГО АТОМА ----------
+    e_atom = calculate_isolated_atom_energy()
 
     # ---------- ОЧИСТКА И ЗАПУСК MACE ----------
     if os.path.exists(MACE_BASE_DIR):
@@ -371,37 +424,87 @@ def main():
         sys.exit(1)
     print("✓ MACE завершился успешно")
 
-    # ---------- ПОИСК ЕДИНСТВЕННОЙ МОДЕЛИ ----------
     model_files = glob.glob(os.path.join(MACE_MODEL_DIR, "*.model"))
     if len(model_files) == 0:
         print(f"✗ В {MACE_MODEL_DIR} не найден ни один .model файл")
         sys.exit(1)
     if len(model_files) > 1:
-        print(f"⚠ В {MACE_MODEL_DIR} найдено несколько .model файлов: {model_files}")
-        print("  Использую самый свежий.")
         model_files.sort(key=os.path.getmtime, reverse=True)
     model_path = model_files[0]
     print(f"Используется модель: {model_path}")
 
-    # ---------- ЗАПУСК find_minimum ----------
     print("\n" + "=" * 60)
     print(f"ПОИСК МИНИМУМА (устройство: {DEVICE.upper()})")
     print("=" * 60)
     
     calc = MACECalculator(
         model_path=model_path,
-        device=DEVICE,          # DEVICE задан в начале файла
+        device=DEVICE,
         default_dtype="float32",
     )
 
     result = run_find_minimum(
-        calc=calc,              # <-- передаём готовый калькулятор
+        calc=calc,
         xyz_path=xyz_path,
         output_xyz=os.path.join(OUTPUT_DIR, "optimized_first_structure.xyz"),
         logfile=os.path.join(OUTPUT_DIR, "opt.log"),
     )
 
-    print(f"\nИтог: r = {result['final_distance']:.4f} Å, E = {result['final_energy']:.6f} eV")
+    print("\n" + "=" * 60)
+    print("ИТОГ ПО РАЗМЕРАМ КЛАСТЕРОВ")
+    print("=" * 60)
+    for n_atoms in sorted(result.keys()):
+        r = result[n_atoms]
+        be_per_atom = None
+        if e_atom is not None:
+            be_per_atom = (e_atom * n_atoms - r["energy"]) / n_atoms
+            r["binding_energy_per_atom"] = be_per_atom
+
+        if not np.isnan(r["distance"]):
+            print(f"  n={n_atoms}: r = {r['distance']:.4f} Å, E = {r['energy']:.6f} eV")
+        else:
+            print(f"  n={n_atoms}: E = {r['energy']:.6f} eV")
+            
+        if be_per_atom is not None:
+            print(f"       Энергия связи: {be_per_atom:.4f} eV/atom")
+
+    # ---------- СБОРКА ОБЩЕГО ФАЙЛА И ГЕНЕРАЦИЯ HTML ----------
+    print("\n" + "=" * 60)
+    print("СБОРКА ВСЕХ МИНИМУМОВ В ОДИН ФАЙЛ И ГЕНЕРАЦИЯ HTML")
+    print("=" * 60)
+    
+    combined_xyz_path = os.path.join(OUTPUT_DIR, "optimized_first_structure_all_optimized.xyz")
+    
+    if os.path.exists(combined_xyz_path):
+        os.remove(combined_xyz_path)
+        
+    for n_atoms in sorted(result.keys()):
+        r = result[n_atoms]
+        out_n_file = r["output_file"]
+        if os.path.exists(out_n_file):
+            with open(out_n_file, "r") as f_in:
+                content = f_in.read()
+            
+            # Если есть энергия связи, добавляем её в comment-строку
+            if "binding_energy_per_atom" in r:
+                be = r["binding_energy_per_atom"]
+                # Находим первую строку комментария (вторая строка файла) и добавляем be=
+                lines = content.split("\n")
+                if len(lines) > 1:
+                    lines[1] = lines[1].replace('energy=', f'binding_energy_per_atom={be:.6f} energy=')
+                content = "\n".join(lines)
+
+            with open(combined_xyz_path, "a") as f_out:
+                f_out.write(content)
+                
+    print(f"Все минимумы собраны в: {combined_xyz_path}")
+
+    web_server_dir = os.path.join(SCRIPT_DIR, "webserver", "static_pages")
+    web_server_dir = os.path.abspath(web_server_dir)
+    html_path = os.path.join(web_server_dir, "optimized_first_structure.html")
+
+    structure_to_html(combined_xyz_path, html_path)
+    print(f"Готово! HTML сохранен в папке веб-сервера: {html_path}")
 
 if __name__ == "__main__":
     main()
