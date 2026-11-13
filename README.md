@@ -1,7 +1,6 @@
+# cp2k-mace-project
 
-# Cu₂ Cluster Optimization Pipeline
-
-Пайплайн для генерации структур Cu₂, расчёта их в CP2K, дообучения MACE-модели и поиска глобального минимума энергии с визуализацией результата.
+Набор скриптов для генерации структур кристаллов, расчёта их в CP2K, дообучения MACE-модели и поиска глобального минимума энергии с визуализацией результата.
 
 ## 📋 Структура проекта
 
@@ -9,158 +8,112 @@
 cp2k-mace-project/
 ├── Dockerfile
 ├── Makefile
+├── package.json
+├── run.sh                       # Скрипт для установки и запуска Docker-контейнера
+│                                # (не забудьте выполнить chmod +x run.sh)
 ├── src/
+│   ├── webserver/               # Веб-сервер
 │   ├── structure_generator.py   # Генерация случайных структур
-│   ├── main.py                  # Оркестратор: CP2K → MACE → минимум
-│   ├── find_minimum.py          # Поиск минимума через MACE
+│   ├── main.py                  # Оркестратор: CP2K → MACE → поиск минимума
+│   ├── find_minimum.py          # Поиск минимума с помощью MACE
 │   └── xyz_to_html.py           # Визуализация структуры в HTML
-├── results/                     # Все результаты работы (создается автоматически)
+├── results/                     # Результаты работы (создаётся автоматически)
 └── README.md
 ```
-
----
 
 ## 🐳 Сборка и публикация Docker-образов
 
 Перед сборкой убедитесь, что вы авторизованы в GitHub Container Registry (GHCR):
 
 ```bash
-echo ВАШ_ТОКЕН | docker login ghcr.io -u 3s3s --password-stdin
+echo "$GHCR_TOKEN" | docker login ghcr.io -u 3s3s --password-stdin
 ```
 
-> ⚠️ **Важно:** команды `make release-cpu` и `make release-gpu` **собирают образ локально и сразу пытаются отправить (push) его в репозиторий GHCR**. Если у вас нет прав на запись или вы не авторизованы, `push` завершится ошибкой. Для сборки без отправки используйте `make build-cpu` / `make build-gpu`.
+Здесь `GHCR_TOKEN` — переменная окружения с GitHub-токеном, имеющим права на публикацию пакетов (`write:packages`).
 
-**Собрать и отправить CPU-образ** (для локальной проверки без GPU):
+⚠️ **Важно:** команды `make release-cpu` и `make release-gpu` собирают образ локально и сразу пытаются отправить (push) его в репозиторий GHCR. Если у вас нет прав на запись или вы не авторизованы, публикация завершится ошибкой. Для сборки без отправки используйте `make build-cpu` или `make build-gpu`.
+
+**Сборка и публикация CPU-образа** (для локальной проверки без GPU):
 
 ```bash
 make release-cpu
 ```
 
-**Собрать и отправить GPU-образ** (для сервера с видеокартой):
+**Сборка и публикация GPU-образа** (для сервера с видеокартой):
 
 ```bash
 make release-gpu
 ```
 
-**Только сборка (без публикации):**
+**Только сборка, без публикации:**
 
 ```bash
 make build-cpu
 make build-gpu
 ```
 
-**Только отправка уже собранных образов:**
+**Только публикация уже собранных образов:**
 
 ```bash
 make push-cpu
 make push-gpu
 ```
 
-После первой отправки сделайте образы публичными (если нужно): GitHub → ваш профиль → **Packages** → выберите образ → **Package settings** → **Change visibility** → **Public**.
+После первой публикации сделайте образы публичными, если это необходимо:
 
----
+GitHub → ваш профиль → Packages → выберите образ → Package settings → Change visibility → Public.
 
 ## 🖥 Запуск на чистой Linux-машине
 
-### Шаг 1. Установка Docker
+Скрипт `run.sh` автоматизирует необходимые действия: установку Docker (если он не установлен), настройку NVIDIA Container Toolkit (при запуске с параметром `--gpu`), клонирование актуальной версии кода и запуск контейнера с монтированием проекта.
 
-Для Ubuntu/Debian:
+### Шаг 1. Клонирование репозитория
 
 ```bash
 sudo apt update
-sudo apt install -y ca-certificates curl
+sudo apt install -y git ca-certificates curl
 
-sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-sudo chmod a+r /etc/apt/keyrings/docker.asc
-
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-# Проверка
-sudo docker run hello-world
+git clone https://github.com/3s3s/cp2k-mace-project.git
+cd cp2k-mace-project
+chmod +x run.sh
 ```
 
-Чтобы не писать `sudo` каждый раз:
+### Шаг 2. Запуск
 
 ```bash
-sudo usermod -aG docker $USER
-# затем выйдите и войдите снова
+./run.sh          # CPU-версия (по умолчанию)
+./run.sh --gpu    # GPU-версия
 ```
 
-### Шаг 2. Скачивание образа
+### Что делает `run.sh`
 
-```bash
-# CPU-версия
-docker pull ghcr.io/3s3s/cp2k-mace:latest-cpu
+- **Проверяет Docker.** Если Docker не установлен, скрипт устанавливает его через официальный скрипт `get.docker.com`, добавляет пользователя в группу `docker` и активирует её в текущей сессии (через `sg docker`), чтобы не требовался повторный вход в систему.
+- **Проверяет NVIDIA runtime (только для `--gpu`).** Сначала проверяет работу `nvidia-smi`. Если NVIDIA Container Toolkit ещё не настроен, устанавливает его, выполняет `nvidia-ctk runtime configure`, перезапускает Docker и проверяет доступ к GPU с помощью тестового контейнера.
+- **Монтирует директорию проекта в `/workspace`.** Внутри контейнера используется актуальный код из локального Git-репозитория. Копировать файлы в контейнер вручную (`docker cp`) не нужно. Для обновления кода достаточно выполнить `git pull` на хосте — изменения сразу станут доступны в контейнере.
+- **Запускает интерактивный `bash`** в контейнере с выбранным образом (`latest-cpu` или `latest-gpu`).
 
-# GPU-версия (на сервере с NVIDIA GPU и NVIDIA Container Toolkit)
-docker pull ghcr.io/3s3s/cp2k-mace:latest-gpu
-```
+После запуска вы окажетесь внутри контейнера в директории `/workspace`, где находится корень проекта (`src/`, `Makefile`, `README.md` и т. д.).
 
-### Шаг 3. Извлечение скриптов из образа (однократно)
+### Требования для запуска с `--gpu`
 
-> ⚠️ **Важный подводный камень:** если сразу запустить контейнер с монтированием (`-v ~/cp2k_workspace:/workspace`), то **пустая папка на хосте перекроет** содержимое `/workspace` внутри образа, и скриптов не будет видно. Поэтому сначала нужно извлечь скрипты из образа в папку на хосте.
-
-```bash
-# Создаём папку на хосте
-mkdir -p ~/cp2k_workspace
-
-# Создаём временный контейнер (без монтирования) и копируем файлы
-docker create --name temp-extract ghcr.io/3s3s/cp2k-mace:latest-cpu
-docker cp temp-extract:/workspace/. ~/cp2k_workspace/
-docker rm temp-extract
-
-# Проверяем, что скрипты на месте
-ls -la ~/cp2k_workspace/
-```
-
-Теперь в `~/cp2k_workspace` лежат `structure_generator.py`, `main.py`, `find_minimum.py`, `xyz_to_html.py`.
-
-### Шаг 4. Запуск контейнера с монтированием
-
-**CPU-версия:**
-
-```bash
-docker run -it --name cp2k-run \
-  -v ~/cp2k_workspace:/workspace \
-  -v ~/cp2k_results:/results \
-  ghcr.io/3s3s/cp2k-mace:latest-cpu /bin/bash
-```
-
-**GPU-версия** (нужен `--gpus all` и настроенный NVIDIA Container Toolkit):
-
-```bash
-docker run -it --name cp2k-run \
-  --gpus all \
-  -v ~/cp2k_workspace:/workspace \
-  -v ~/cp2k_results:/results \
-  ghcr.io/3s3s/cp2k-mace:latest-gpu /bin/bash
-```
-
-Вы окажетесь внутри контейнера в директории `/workspace`, где видны ваши скрипты. Результаты будут сохраняться в `/results` (на хосте — в `~/cp2k_results`).
-
----
+- Видеокарта NVIDIA на хост-машине.
+- Установленный драйвер NVIDIA (`nvidia-smi` должен работать). Скрипт `run.sh` **не устанавливает драйвер** — только проверяет его наличие и подсказывает, что делать, если драйвер отсутствует.
+- Права `sudo` (необходимы для установки Docker и NVIDIA Container Toolkit).
 
 ## ⚙️ Выбор CPU или GPU
 
-Устройство задаётся **в одном месте** — в начале `main.py`:
+Устройство задаётся в начале файла `src/main.py`:
 
 ```python
 # main.py
-DEVICE = "cpu"   # <-- поменяйте на "gpu" для сервера с видеокартой
+DEVICE = "cpu"   # <-- замените на "gpu" для сервера с видеокартой
 ```
 
 Это значение автоматически используется:
 
-- для MACE fine-tuning (`--device DEVICE`);
-- для создания `MACECalculator` в `main.py`;
-- для оптимизации BFGS в `find_minimum.py` (через готовый калькулятор).
+- при дообучении MACE (`--device DEVICE`);
+- при создании `MACECalculator` в `main.py`;
+- при оптимизации BFGS в `find_minimum.py` (через готовый калькулятор).
 
 При запуске `main.py` в консоль выводится текущий режим:
 
@@ -171,49 +124,47 @@ DEVICE = "cpu"   # <-- поменяйте на "gpu" для сервера с в
 ============================================================
 ```
 
----
-
 ## 🚀 Запуск расчётов
 
-Внутри контейнера (в `/workspace`):
+Все команды выполняются внутри контейнера из корневой директории проекта (`/workspace`).
 
 ```bash
 # 1. Генерация структур
-python3 structure_generator.py
+python3 src/structure_generator.py
 
 # 2. Полный пайплайн: CP2K → MACE fine-tuning → поиск минимума
-python3 main.py
+python3 src/main.py
 ```
 
-### Что появится в `results/`:
+### Что появится в `results/`
 
 | Файл | Описание |
 |------|----------|
 | `generated_structures.xyz` | Сгенерированные структуры Cu₂ |
-| `cu_all_data.xyz` | Структуры с энергиями и силами из CP2K |
+| `cu_all_data.xyz` | Структуры с энергиями и силами, рассчитанными в CP2K |
 | `cu2_XXX.inp`, `.out`, `.forces` | Файлы CP2K для каждой структуры |
 | `mace_output/` | Чекпоинты, модели и логи MACE |
-| `optimized_first_structure.xyz` | Лучшая структура (глобальный минимум) |
-| `optimized_first_structure.html` | Интерактивная 3D-визуализация |
-| `opt.log` | Лог BFGS для лучшей структуры |
-
----
+| `optimized_first_structure.xyz` | Оптимизированная структура с минимальной энергией |
+| `optimized_first_structure.html` | Интерактивная 3D-визуализация структуры |
+| `opt.log` | Лог оптимизации BFGS |
 
 ## 📊 Просмотр результатов
 
-HTML-визуализацию (`optimized_first_structure.html`) можно открыть в любом браузере. Для этого скопируйте её с сервера на локальную машину:
+HTML-визуализацию (`optimized_first_structure.html`) можно открыть в любом браузере.
+
+Для этого скопируйте её с сервера на локальную машину:
 
 ```bash
-scp user@server:~/cp2k_results/optimized_first_structure.html .
+scp user@server:~/cp2k-mace-project/results/optimized_first_structure.html .
 ```
 
-> Требуется доступ в интернет при открытии — Three.js загружается с CDN `unpkg.com`.
-
----
+Для отображения визуализации требуется доступ в интернет: библиотека Three.js загружается с CDN `unpkg.com`.
 
 ## 🔄 Обновление образов
 
-Когда вы отладили изменения локально:
+После отладки и внесения изменений в проект соберите и опубликуйте новые образы:
+
+**На машине для сборки:**
 
 ```bash
 # CPU
@@ -223,17 +174,17 @@ make release-cpu
 make release-gpu
 ```
 
-На сервере:
+**На сервере:**
 
 ```bash
+# Обновление CPU-образа
 docker pull ghcr.io/3s3s/cp2k-mace:latest-cpu
-# или
+
+# Или обновление GPU-образа
 docker pull ghcr.io/3s3s/cp2k-mace:latest-gpu
 ```
 
-Затем пересоздайте контейнер (см. Шаг 4).
-
----
+Затем перезапустите контейнер с помощью `./run.sh` или `./run.sh --gpu`.
 
 ## 🧹 Полезные команды
 
@@ -242,30 +193,40 @@ docker pull ghcr.io/3s3s/cp2k-mace:latest-gpu
 docker ps -a
 
 # Остановить контейнер
-docker stop cp2k-run
+docker stop <container_id>
 
 # Удалить контейнер
-docker rm -f cp2k-run
+docker rm -f <container_id>
 
 # Войти в уже запущенный контейнер
-docker exec -it cp2k-run /bin/bash
+docker exec -it <container_id> /bin/bash
 
 # Выйти из контейнера
 exit
 ```
 
----
-
 ## 🛠 Устранение неполадок
 
 **`libcuda.so.1: cannot open shared object file`**
 
-Вы запустили GPU-образ на машине без NVIDIA GPU или без `--gpus all`. Используйте CPU-образ (`latest-cpu`) или пересоздайте контейнер с `--gpus all` на машине с GPU.
+Вы запустили GPU-образ на машине без NVIDIA GPU или без доступа контейнера к GPU. Используйте CPU-образ (`./run.sh`) или запустите GPU-версию (`./run.sh --gpu`) на машине с исправно работающим драйвером NVIDIA и настроенным NVIDIA Container Toolkit.
 
 **`FileNotFoundError: '../results/generated_structures.xyz'`**
 
-Сначала запустите `structure_generator.py` — он создаст файл. Убедитесь, что скрипты запускаются из `src/` (или что пути в `main.py`/`structure_generator.py` указывают на правильный `results/`).
+Сначала запустите `structure_generator.py`, чтобы создать файл `generated_structures.xyz`.
 
-**В `/workspace` пусто после монтирования**
+Обратите внимание на рабочую директорию: все приведённые выше команды рассчитаны на запуск из корня проекта (`/workspace`). Если скрипты используют относительные пути, запуск из другой директории может привести к ошибкам поиска файлов. При необходимости проверьте пути к `results/` в `main.py` и `structure_generator.py`.
 
-Пустая папка на хосте перекрыла содержимое образа. См. Шаг 3 — извлеките скрипты из образа до монтирования.
+**`Docker daemon not accessible for current user`**
+
+Скрипт `run.sh` попытается автоматически активировать группу `docker` через `sg`. Если это не сработало, выйдите из системы и войдите снова, затем повторите запуск `./run.sh`.
+
+**`NVIDIA driver not found or not working`**
+
+Драйвер NVIDIA не установлен или работает некорректно. Установите его, например, с помощью команды:
+
+```bash
+sudo ubuntu-drivers install
+```
+
+После установки перезагрузите систему и снова запустите `./run.sh --gpu`.

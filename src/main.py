@@ -8,6 +8,9 @@
 Энергия изолированного атома кэшируется.
 Затем запускает MACE fine-tuning, находит глобальные минимумы,
 считает энергию связи, собирает всё в один .xyz и генерирует HTML.
+
+Использование:
+  python main.py [--cpu | --gpu] [--help]
 """
 
 import os
@@ -17,6 +20,7 @@ import time
 import sys
 import shutil
 import glob
+import argparse
 import numpy as np
 
 from mace.calculators import MACECalculator
@@ -24,7 +28,6 @@ from find_minimum import run_find_minimum
 from xyz_to_html import structure_to_html
 
 ELEMENT = "Cu"
-DEVICE = "cpu"
 
 CELL_SIZE = 20.0
 LATTICE_STR = f"{CELL_SIZE} 0.0 0.0 0.0 {CELL_SIZE} 0.0 0.0 0.0 {CELL_SIZE}"
@@ -48,30 +51,6 @@ MACE_CHECKPOINTS_DIR = os.path.join(MACE_BASE_DIR, "checkpoints")
 MACE_MODEL_DIR = os.path.join(MACE_BASE_DIR, "models")
 MACE_LOG_DIR = os.path.join(MACE_BASE_DIR, "logs")
 MACE_RESULTS_DIR = os.path.join(MACE_BASE_DIR, "results")
-
-MACE_CMD_BASE = [
-    "mace_run_train",
-    "--name", MACE_MODEL_NAME,
-    "--foundation_model", "small",
-    "--multiheads_finetuning", "False",
-    "--batch_size", "1",
-    "--train_file", os.path.join(OUTPUT_DIR, OUTPUT_XYZ_NAME),
-    "--valid_fraction", "0.2",
-    "--energy_key", "energy",
-    "--forces_key", "forces",
-    "--E0s", "estimated",
-    "--energy_weight", "1.0",
-    "--forces_weight", "10.0",
-    "--lr", "0.001",
-    "--max_num_epochs", "50",
-    "--eval_interval", "5",
-    "--device", DEVICE,
-    "--default_dtype", "float32",
-    "--checkpoints_dir", MACE_CHECKPOINTS_DIR,
-    "--model_dir", MACE_MODEL_DIR,
-    "--log_dir", MACE_LOG_DIR,
-    "--results_dir", MACE_RESULTS_DIR,
-]
 
 TEMPLATE = """&GLOBAL
   PROJECT {project}
@@ -142,6 +121,35 @@ TEMPLATE = """&GLOBAL
   &END PRINT
 &END FORCE_EVAL
 """
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Запуск DFT расчетов для кластеров Cu и обучение MACE.",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument(
+        "--cpu", action="store_true", help="Использовать CPU для MACE (по умолчанию)."
+    )
+    parser.add_argument(
+        "--gpu", action="store_true", help="Использовать GPU для MACE."
+    )
+    
+    args = parser.parse_args()
+    
+    # Если не указан ни --cpu, ни --gpu, выводим хэлп и используем CPU по умолчанию
+    if not args.cpu and not args.gpu:
+        parser.print_help()
+        print("\n" + "=" * 60)
+        print("Внимание: не указан режим (--cpu или --gpu). Использую --cpu по умолчанию.")
+        print("=" * 60)
+        return "cpu"
+    
+    if args.gpu:
+        return "gpu"
+    return "cpu"
+
+# Глобальная переменная для устройства
+DEVICE = "cpu"
 
 def read_structures_with_meta(xyz_path):
     structures = []
@@ -257,13 +265,8 @@ def parse_forces(forcefile):
     return forces
 
 def parse_homo_lumo(outfile):
-    """Парсит HOMO и LUMO энергии из .out файла."""
     homo = None
     lumo = None
-    # Ищем в выводе MO_CUBES или в блоке орбиталей
-    # CP2K обычно пишет что-то вроде:
-    # HOMO -0.1234
-    # LUMO  0.0567
     with open(outfile, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
             if "HOMO" in line and "=" in line:
@@ -277,17 +280,12 @@ def parse_homo_lumo(outfile):
     return None
 
 def parse_magnetic_moment(outfile):
-    """Парсит общий магнитный момент из вывода MOMENTS или MULLIKEN."""
-    # Ищем строку с общим спиновым моментом
     with open(outfile, "r", encoding="utf-8", errors="replace") as f:
         content = f.read()
     
-    # Пытаемся найти в выводе MOMENTS
     m = re.search(r"Total Magnetic Moment\s*[:=]\s*(-?\d+\.\d+)", content)
     if m: return float(m.group(1))
     
-    # Или в выводе Mulliken (сумма Spin moment)
-    # Это сложнее, но CP2K часто пишет "Integrated spin density" или похожее
     m = re.search(r"Integrated spin density\s*[:=]\s*(-?\d+\.\d+)", content)
     if m: return float(m.group(1))
     
@@ -354,7 +352,6 @@ def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir):
         return proc.returncode == 0
         
 def build_xyz_record(coords, energy_ev, forces_ev_ang, n_atoms, dim, struct_id, gap_ev=None, mag_moment=None, extra_comment=""):
-    # Добавляем gap и mag_moment в comment
     extra = ""
     if gap_ev is not None:
         extra += f"homo_lumo_gap={gap_ev:.6f} "
@@ -379,7 +376,6 @@ def build_xyz_record(coords, energy_ev, forces_ev_ang, n_atoms, dim, struct_id, 
     return "\n".join(lines) + "\n"
 
 def calculate_isolated_atom_energy():
-    """Считает энергию изолированного атома Cu, если она ещё не закэширована."""
     print("\n" + "=" * 60)
     print("ПРОВЕРКА/РАСЧЁТ ЭНЕРГИИ ИЗОЛИРОВАННОГО АТОМА Cu")
     print("=" * 60)
@@ -429,9 +425,37 @@ def calculate_isolated_atom_energy():
         return None
 
 def main():
+    global DEVICE
+    DEVICE = parse_args()
+
     print("=" * 60)
     print(f"ЗАПУСК В РЕЖИМЕ: {DEVICE.upper()}")
     print("=" * 60)
+
+    # Формируем команду MACE уже с нужным DEVICE
+    mace_cmd = [
+        "mace_run_train",
+        "--name", MACE_MODEL_NAME,
+        "--foundation_model", "small",
+        "--multiheads_finetuning", "False",
+        "--batch_size", "1",
+        "--train_file", os.path.join(OUTPUT_DIR, OUTPUT_XYZ_NAME),
+        "--valid_fraction", "0.2",
+        "--energy_key", "energy",
+        "--forces_key", "forces",
+        "--E0s", "estimated",
+        "--energy_weight", "1.0",
+        "--forces_weight", "10.0",
+        "--lr", "0.001",
+        "--max_num_epochs", "50",
+        "--eval_interval", "5",
+        "--device", DEVICE,
+        "--default_dtype", "float32",
+        "--checkpoints_dir", MACE_CHECKPOINTS_DIR,
+        "--model_dir", MACE_MODEL_DIR,
+        "--log_dir", MACE_LOG_DIR,
+        "--results_dir", MACE_RESULTS_DIR,
+    ]
 
     if not os.path.exists(INPUT_XYZ):
         print(f"✗ Входной файл {INPUT_XYZ} не найден. Сначала запустите structure_generator.py")
@@ -525,7 +549,6 @@ def main():
                 for fx, fy, fz in forces
             ]
 
-            # Выводим в консоль
             msg = f"  ✓ OK: E = {energy_ev:.6f} eV за {elapsed:.1f} с"
             if gap is not None:
                 msg += f", Gap = {gap:.4f} eV"
@@ -537,10 +560,8 @@ def main():
             xyz.flush()
             done_ids.add(struct_id)
 
-    # ---------- РАСЧЁТ/ЧТЕНИЕ ИЗОЛИРОВАННОГО АТОМА ----------
     e_atom = calculate_isolated_atom_energy()
 
-    # ---------- ОЧИСТКА И ЗАПУСК MACE ----------
     if os.path.exists(MACE_BASE_DIR):
         print(f"\nУдаляю старый каталог MACE: {MACE_BASE_DIR}")
         shutil.rmtree(MACE_BASE_DIR)
@@ -552,7 +573,8 @@ def main():
     print("\n" + "=" * 60)
     print(f"ЗАПУСК MACE FINE-TUNING (устройство: {DEVICE.upper()})")
     print("=" * 60)
-    mace_result = subprocess.run(MACE_CMD_BASE)
+    
+    mace_result = subprocess.run(mace_cmd)
     if mace_result.returncode != 0:
         print(f"✗ MACE завершился с кодом {mace_result.returncode}")
         sys.exit(1)
@@ -602,7 +624,6 @@ def main():
         if be_per_atom is not None:
             print(f"       Энергия связи: {be_per_atom:.4f} eV/atom")
 
-    # ---------- СБОРКА ОБЩЕГО ФАЙЛА И ГЕНЕРАЦИЯ HTML ----------
     print("\n" + "=" * 60)
     print("СБОРКА ВСЕХ МИНИМУМОВ В ОДИН ФАЙЛ И ГЕНЕРАЦИЯ HTML")
     print("=" * 60)
