@@ -138,14 +138,18 @@ echo ">>> Starting container in $MODE mode..."
 echo ">>> Project directory: $SCRIPT_DIR"
 
 if [[ "$MODE" == "gpu" ]]; then
-    docker run -it --rm \
-        --gpus all \
-        -v "$SCRIPT_DIR":/workspace \
-        "$IMAGE_GPU" \
-        bash
+	docker run -it --rm \
+		--gpus all \
+		-p 8443:8443 \
+		-v "$SCRIPT_DIR":/workspace \
+		-w /workspace \
+		"$IMAGE_GPU" \
+		bash -c "npm install && bash"
 else
-    docker run -it --rm \
-        -v "$SCRIPT_DIR":/workspace \
-        "$IMAGE_CPU" \
-        bash
+	docker run -it --rm \
+		-p 8443:8443 \
+		-v "$SCRIPT_DIR":/workspace \
+		-w /workspace \
+		"$IMAGE_CPU" \
+		bash -c "npm install && bash"
 fi
