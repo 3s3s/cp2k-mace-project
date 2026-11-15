@@ -1,0 +1,444 @@
+#!/usr/bin/env python3
+"""
+Модуль для работы с CP2K:
+  - генерация .inp из шаблона;
+  - запуск CP2K с live-логом, детекцией SCF-расхождения и таймаутом;
+  - парсинг энергии, сил, HOMO-LUMO gap, магнитного момента;
+  - расчёт/кэширование энергии изолированного атома;
+  - высокоуровневая функция run_dft_for_structures() для пакетной обработки.
+
+Все константы берутся из config (dict), который передаёт главный модуль.
+"""
+
+import os
+import re
+import time
+import subprocess
+
+
+# ---------- Шаблон CP2K ----------
+TEMPLATE = """&GLOBAL
+  PROJECT {project}
+  RUN_TYPE ENERGY_FORCE
+  PRINT_LEVEL LOW
+&END GLOBAL
+
+&FORCE_EVAL
+  METHOD Quickstep
+  &DFT
+    BASIS_SET_FILE_NAME BASIS_MOLOPT
+    POTENTIAL_FILE_NAME GTH_POTENTIALS
+    LSD
+    &MGRID
+      CUTOFF 400
+      REL_CUTOFF 50
+    &END MGRID
+    &QS
+      EPS_DEFAULT 1.0E-10
+    &END QS
+    &SCF
+      SCF_GUESS ATOMIC
+      EPS_SCF 1.0E-6
+      MAX_SCF 100
+      &OT
+        MINIMIZER DIIS
+        PRECONDITIONER FULL_SINGLE_INVERSE
+      &END OT
+    &END SCF
+    &XC
+      &XC_FUNCTIONAL PBE
+      &END XC_FUNCTIONAL
+    &END XC
+    &POISSON
+      POISSON_SOLVER WAVELET
+      PERIODIC NONE
+    &END POISSON
+    &PRINT
+      &MO_CUBES
+        NHOMO 1
+        NLUMO 1
+      &END MO_CUBES
+      &MULLIKEN ON
+      &END MULLIKEN
+      &MOMENTS ON
+      &END MOMENTS
+    &END PRINT
+  &END DFT
+
+  &SUBSYS
+    &CELL
+      ABC {cell_size} {cell_size} {cell_size}
+      PERIODIC NONE
+    &END CELL
+    &COORD
+{coords_block}
+    &END COORD
+    &KIND {element}
+      BASIS_SET DZVP-MOLOPT-SR-GTH
+      POTENTIAL GTH-PBE-q11
+    &END KIND
+  &END SUBSYS
+
+  &PRINT
+    &FORCES ON
+      FILENAME ={project}.forces
+    &END FORCES
+  &END PRINT
+&END FORCE_EVAL
+"""
+
+
+# ---------- Генерация .inp ----------
+def write_cp2k_input(inp_path: str, project: str, coords, cfg: dict):
+    """Пишет .inp файл для заданных координат, центрируя их в ячейке."""
+    import numpy as np
+    
+    coords_arr = np.array(coords)
+    # Находим геометрический центр структуры
+    center_of_mass = coords_arr.mean(axis=0)
+    
+    # Центр ячейки CP2K (половина cell_size)
+    cell_center = np.array([cfg["cell_size"] / 2.0] * 3)
+    
+    # Сдвигаем все атомы так, чтобы центр масс совпал с центром ячейки
+    coords_arr = coords_arr - center_of_mass + cell_center
+    
+    coords_block = "\n".join(
+        f"      {cfg['element']}  {x:.8f}  {y:.8f}  {z:.8f}"
+        for x, y, z in coords_arr
+    )
+    with open(inp_path, "w") as f:
+        f.write(TEMPLATE.format(
+            project=project,
+            cell_size=cfg["cell_size"],
+            coords_block=coords_block,
+            element=cfg["element"],
+        ))
+
+# ---------- Парсинг ----------
+def parse_energy(outfile: str) -> float:
+    pattern = re.compile(
+        r"ENERGY\|\s+Total FORCE_EVAL.*?energy \[hartree\]\s+(-?\d+\.\d+)"
+    )
+    with open(outfile, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            m = pattern.search(line)
+            if m:
+                return float(m.group(1))
+    raise ValueError(f"Энергия не найдена в {outfile}")
+
+
+def parse_forces(forcefile: str):
+    forces = []
+    with open(forcefile, "r", encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+    start = None
+    for i, line in enumerate(lines):
+        if "ATOMIC FORCES in [a.u.]" in line:
+            start = i + 1
+            break
+    if start is None:
+        raise ValueError(f"Секция ATOMIC FORCES не найдена в {forcefile}")
+    j = start
+    while j < len(lines):
+        s = lines[j].strip()
+        if s == "" or s.startswith("#"):
+            j += 1
+            continue
+        break
+    for line in lines[j:]:
+        s = line.strip()
+        if s == "" or s.startswith("SUM OF ATOMIC FORCES"):
+            break
+        parts = s.split()
+        if len(parts) < 6:
+            break
+        try:
+            fx, fy, fz = float(parts[3]), float(parts[4]), float(parts[5])
+        except ValueError:
+            break
+        forces.append([fx, fy, fz])
+    return forces
+
+
+def parse_homo_lumo(outfile: str, hartree_to_ev: float):
+    homo = None
+    lumo = None
+    with open(outfile, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if "HOMO" in line and "=" in line:
+                m = re.search(r"=\s*(-?\d+\.\d+)", line)
+                if m:
+                    homo = float(m.group(1))
+            if "LUMO" in line and "=" in line:
+                m = re.search(r"=\s*(-?\d+\.\d+)", line)
+                if m:
+                    lumo = float(m.group(1))
+    if homo is not None and lumo is not None:
+        return (lumo - homo) * hartree_to_ev
+    return None
+
+
+def parse_magnetic_moment(outfile: str):
+    with open(outfile, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read()
+
+    m = re.search(r"Total Magnetic Moment\s*[:=]\s*(-?\d+\.\d+)", content)
+    if m:
+        return float(m.group(1))
+
+    m = re.search(r"Integrated spin density\s*[:=]\s*(-?\d+\.\d+)", content)
+    if m:
+        return float(m.group(1))
+
+    return None
+
+
+# ---------- Запуск CP2K ----------
+def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict) -> bool:
+    interesting = re.compile(
+        r"(SCF WAVEFUNCTION|OT DIIS|OT SD|SCF run converged|"
+        r"ENERGY\||ABORT|WARNING|error|Error|Total energy|"
+        r"GEO_OPT|step number|Informations at step)"
+    )
+
+    scf_step_re = re.compile(r"^\s*(\d+)\s+OT\s+\S+\s+[\d.E+-]+\s+[\d.]+\s+([\d.E+-]+)")
+
+    with open(out_file, "w", encoding="utf-8", errors="replace") as fout:
+        proc = subprocess.Popen(
+            [cfg["cp2k_cmd"], "-i", os.path.basename(inp_file)],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1, cwd=workdir,
+            encoding="utf-8", errors="replace",
+        )
+        start_time = time.time()
+        last_print = start_time
+
+        scf_convergence_history = []
+        MAX_STALLED_STEPS = 10
+
+        try:
+            for line in proc.stdout:
+                fout.write(line)
+                fout.flush()
+
+                if cfg["verbose_cp2k"] and interesting.search(line):
+                    print(f"    | {line.rstrip()}")
+                    last_print = time.time()
+
+                m_scf = scf_step_re.match(line)
+                if m_scf:
+                    step = int(m_scf.group(1))
+                    conv = float(m_scf.group(2))
+                    scf_convergence_history.append(conv)
+
+                    if len(scf_convergence_history) > MAX_STALLED_STEPS:
+                        recent = scf_convergence_history[-MAX_STALLED_STEPS:]
+                        if min(recent) >= scf_convergence_history[-MAX_STALLED_STEPS - 1]:
+                            print(f"    ! ОБНАРУЖЕНО РАСХОЖДЕНИЕ SCF на шаге {step}. Убиваю CP2K.")
+                            proc.kill()
+                            return False
+
+                if time.time() - last_print > 60:
+                    elapsed = int(time.time() - start_time)
+                    print(f"    | ... (тишина {elapsed} с, CP2K работает)")
+                    last_print = time.time()
+
+                if timeout is not None and (time.time() - start_time) > timeout:
+                    print(f"    ! ТАЙМАУТ ({timeout} с) — убиваю CP2K")
+                    proc.kill()
+                    return False
+
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            return False
+        return proc.returncode == 0
+
+
+# ---------- Энергия изолированного атома ----------
+def calculate_isolated_atom_energy(cfg: dict):
+    """
+    Возвращает энергию изолированного атома в eV или None при ошибке.
+    Кэширует результат в cfg["isolated_atom_energy_file"].
+    """
+    print("\n" + "=" * 60)
+    print(f"ПРОВЕРКА/РАСЧЁТ ЭНЕРГИИ ИЗОЛИРОВАННОГО АТОМА {cfg['element']}")
+    print("=" * 60)
+
+    if os.path.exists(cfg["isolated_atom_energy_file"]):
+        try:
+            with open(cfg["isolated_atom_energy_file"], "r") as f:
+                energy_ev = float(f.read().strip())
+            print(f"✓ Энергия изолированного атома взята из кэша: {energy_ev:.6f} eV")
+            return energy_ev
+        except Exception as e:
+            print(f"⚠ Ошибка чтения кэша: {e}. Пересчитываю...")
+            os.remove(cfg["isolated_atom_energy_file"])
+
+    project = f"{cfg['element']}_isolated_atom"
+    inp_path = os.path.join(cfg["output_dir"], f"{project}.inp")
+    out_path = os.path.join(cfg["output_dir"], f"{project}.out")
+
+    half = cfg["cell_size"] / 2.0
+    coords = [(half, half, half)]
+
+    write_cp2k_input(inp_path, project, coords, cfg)
+
+    ok = run_cp2k_with_live_log(
+        inp_path, out_path, cfg["timeout_per_config"], cfg["output_dir"], cfg
+    )
+    if not ok:
+        print("✗ Не удалось посчитать изолированный атом. Энергия связи не будет рассчитана.")
+        return None
+
+    try:
+        energy_hartree = parse_energy(out_path)
+        energy_ev = energy_hartree * cfg["hartree_to_ev"]
+        print(f"✓ Энергия изолированного атома: {energy_ev:.6f} eV "
+              f"({energy_hartree:.8f} Hartree)")
+
+        with open(cfg["isolated_atom_energy_file"], "w") as f:
+            f.write(f"{energy_ev:.8f}\n")
+
+        return energy_ev
+    except Exception as e:
+        print(f"✗ Ошибка парсинга энергии изолированного атома: {e}")
+        return None
+
+
+# ---------- Высокоуровневый API ----------
+def build_xyz_record(coords, energy_ev, forces_ev_ang, n_atoms, dim, struct_id,
+                     cfg: dict, gap_ev=None, mag_moment=None, extra_comment=""):
+    """Собирает XYZ-запись с расширенным comment."""
+    extra = ""
+    if gap_ev is not None:
+        extra += f"homo_lumo_gap={gap_ev:.6f} "
+    if mag_moment is not None:
+        extra += f"magnetic_moment={mag_moment:.6f} "
+    extra += extra_comment
+
+    comment = (
+        f'Lattice="{cfg["lattice_str"]}" '
+        f'Properties=species:S:1:pos:R:3:forces:R:3 '
+        f'energy={energy_ev:.8f} '
+        f'n_atoms={n_atoms} dim={dim} struct_id={struct_id} '
+        f'{extra}'
+        f'pbc="F F F"'
+    )
+    lines = [str(n_atoms), comment]
+    for (x, y, z), (fx, fy, fz) in zip(coords, forces_ev_ang):
+        lines.append(
+            f"{cfg['element']} {x:.8f} {y:.8f} {z:.8f} "
+            f"{fx:.8f} {fy:.8f} {fz:.8f}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def run_dft_for_structures(structures, xyz_path, done_ids, failed_ids, cfg: dict):
+    """
+    Прогоняет CP2K по списку структур, дописывая результаты в xyz_path.
+    Пропускает struct_id из done_ids и failed_ids.
+    Помечает сбойные struct_id в cfg["failed_ids_file"].
+
+    :param structures: список dict (n_atoms, dim, struct_id, coords)
+    :param xyz_path: путь к выходному XYZ
+    :param done_ids: set уже посчитанных struct_id (мутируется)
+    :param failed_ids: set сбойных struct_id (мутируется)
+    :param cfg: конфиг
+    """
+    with open(xyz_path, "a") as xyz:
+        for idx, s in enumerate(structures):
+            n_atoms = s["n_atoms"]
+            dim = s["dim"]
+            struct_id = s["struct_id"]
+
+            if struct_id in done_ids:
+                print(f"\n[{idx+1}/{len(structures)}] {struct_id} — уже посчитано, пропускаю")
+                continue
+
+            if struct_id in failed_ids:
+                print(f"\n[{idx+1}/{len(structures)}] {struct_id} — ранее признано сбойным, пропускаю")
+                continue
+
+            coords = s["coords"]
+            safe_id = re.sub(r"[^a-zA-Z0-9_]", "_", struct_id)
+            project = f"{cfg['element']}{n_atoms}_{safe_id}"
+
+            print(f"\n[{idx+1}/{len(structures)}] {struct_id} (n={n_atoms}, dim={dim})")
+
+            inp_path = os.path.join(cfg["output_dir"], f"{project}.inp")
+            out_path = os.path.join(cfg["output_dir"], f"{project}.out")
+            force_path = os.path.join(cfg["output_dir"], f"{project}.forces")
+
+            write_cp2k_input(inp_path, project, coords, cfg)
+
+            t0 = time.time()
+            ok = run_cp2k_with_live_log(
+                inp_path, out_path, cfg["timeout_per_config"], cfg["output_dir"], cfg
+            )
+            elapsed = time.time() - t0
+
+            if not ok:
+                print(f"  ✗ CP2K завершился с ошибкой/таймаутом за {elapsed:.1f} с")
+                print(f"  ! Помечаю {struct_id} как сбойную")
+                _mark_as_failed(struct_id, cfg["failed_ids_file"])
+                failed_ids.add(struct_id)
+                continue
+
+            try:
+                energy = parse_energy(out_path)
+                forces = parse_forces(force_path)
+                gap = parse_homo_lumo(out_path, cfg["hartree_to_ev"])
+                mag = parse_magnetic_moment(out_path)
+            except Exception as e:
+                print(f"  ✗ Ошибка извлечения данных: {e}")
+                print(f"  ! Помечаю {struct_id} как сбойную")
+                _mark_as_failed(struct_id, cfg["failed_ids_file"])
+                failed_ids.add(struct_id)
+                continue
+
+            if len(forces) != n_atoms:
+                print(f"  ✗ Ожидалось {n_atoms} атомов, получено {len(forces)}")
+                print(f"  ! Помечаю {struct_id} как сбойную")
+                _mark_as_failed(struct_id, cfg["failed_ids_file"])
+                failed_ids.add(struct_id)
+                continue
+
+            energy_ev = energy * cfg["hartree_to_ev"]
+            forces_ev_ang = [
+                [fx * cfg["hartree_bohr_to_ev_ang"],
+                 fy * cfg["hartree_bohr_to_ev_ang"],
+                 fz * cfg["hartree_bohr_to_ev_ang"]]
+                for fx, fy, fz in forces
+            ]
+
+            msg = f"  ✓ OK: E = {energy_ev:.6f} eV за {elapsed:.1f} с"
+            if gap is not None:
+                msg += f", Gap = {gap:.4f} eV"
+            if mag is not None:
+                msg += f", MagMom = {mag:.4f} μB"
+            print(msg)
+
+            xyz.write(build_xyz_record(
+                coords, energy_ev, forces_ev_ang, n_atoms, dim, struct_id,
+                cfg, gap, mag,
+            ))
+            xyz.flush()
+            done_ids.add(struct_id)
+
+
+def _mark_as_failed(struct_id, filepath):
+    with open(filepath, "a") as f:
+        f.write(f"{struct_id}\n")
+
+
+def read_failed_ids(filepath):
+    failed = set()
+    if os.path.exists(filepath):
+        with open(filepath, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    failed.add(line)
+    return failed

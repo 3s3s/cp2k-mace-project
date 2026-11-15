@@ -1,3 +1,6 @@
+CACHE_DIR_CPU = .buildx-cache-cpu
+CACHE_DIR_GPU = .buildx-cache-gpu
+
 # Имя вашего логина на GitHub
 GITHUB_USER = 3s3s
 # Имя образа (можно любое, например cp2k-mace)
@@ -23,12 +26,19 @@ build: build-cpu build-gpu
 
 # Сборка только CPU-версии (для локальной проверки)
 build-cpu:
-	docker buildx build --build-arg CP2K_IMAGE=cp2k/cp2k:2024.3_mpich_generic_psmp -t $(CPU_IMAGE) .
+	docker buildx build \
+		--build-arg CP2K_IMAGE=cp2k/cp2k:2024.3_mpich_generic_psmp \
+		--cache-to type=local,dest=$(CACHE_DIR_CPU),mode=max \
+		--cache-from type=local,src=$(CACHE_DIR_CPU) \
+		-t $(CPU_IMAGE) .
 
 # Сборка только GPU-версии (для сервера)
 build-gpu:
-	docker buildx build --build-arg CP2K_IMAGE=cp2k/cp2k:2024.3_mpich_generic_cuda_P100_psmp -t $(GPU_IMAGE) .
-
+	docker buildx build \
+		--build-arg CP2K_IMAGE=cp2k/cp2k:2024.3_mpich_generic_cuda_P100_psmp \
+		--cache-to type=local,dest=$(CACHE_DIR_GPU),mode=max \
+		--cache-from type=local,src=$(CACHE_DIR_GPU) \
+		-t $(GPU_IMAGE) .
 # ==========================================
 # Отправка в GHCR
 # ==========================================

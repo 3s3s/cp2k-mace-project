@@ -8,3 +8,5 @@ node_modules/
 *.Identifier
 results/
 mace_output/
+.buildx-cache-cpu/
+.buildx-cache-gpu/

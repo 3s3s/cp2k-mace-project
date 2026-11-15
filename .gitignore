@@ -4,3 +4,5 @@ results
 __pycache__
 node_modules
 mace_output
+.buildx-cache-cpu
+.buildx-cache-gpu

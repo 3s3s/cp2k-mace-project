@@ -1,0 +1,112 @@
+{
+  "element": {
+    "value": "Cu",
+    "help": "Химический элемент кластеров."
+  },
+  "atom_diameter": {
+    "value": 2,
+    "help": "Диаметр атома Cu в Å. Влияет на MIN_DIST/MAX_DIST."
+  },
+  "min_dist": {
+    "value": 2,
+    "help": "Минимальное расстояние между атомами при генерации, Å."
+  },
+  "max_dist": {
+    "value": 4,
+    "help": "Максимальное расстояние до ближайшего соседа при генерации, Å."
+  },
+  "structures_per_n": {
+    "value": {
+      "2": 2,
+      "3": 4
+    },
+    "help": "Сколько структур генерировать для каждого n_atoms (ключи — строки)."
+  },
+  "dimensions_per_n": {
+    "value": {
+      "2": [
+        3
+      ],
+      "3": [
+        2
+      ]
+    },
+    "help": "Какие размерности генерировать для каждого n_atoms."
+  },
+  "random_seed": {
+    "value": 42,
+    "help": "Seed для random. Фиксирует воспроизводимость."
+  },
+  "box_size_margin": {
+    "value": 4,
+    "help": "Запас размера бокса при генерации: box = max_dist * sqrt(n) * margin."
+  },
+  "max_attempts_per_atom": {
+    "value": 10000,
+    "help": "Сколько попыток даётся на размещение одного атома."
+  },
+  "cell_size": {
+    "value": 20,
+    "help": "Размер кубической ячейки CP2K, Å."
+  },
+  "hartree_to_ev": {
+    "value": 27.211386,
+    "help": "Коэффициент перевода Hartree -> eV."
+  },
+  "hartree_bohr_to_ev_ang": {
+    "value": 51.422067,
+    "help": "Коэффициент перевода Hartree/Bohr -> eV/Å (для сил)."
+  },
+  "cp2k_cmd": {
+    "value": "cp2k",
+    "help": "Команда запуска CP2K (может быть путём к бинарю)."
+  },
+  "timeout_per_config": {
+    "value": 3600,
+    "help": "Таймаут на один расчёт CP2K, секунды."
+  },
+  "verbose_cp2k": {
+    "value": true,
+    "help": "Печатать ключевые строки вывода CP2K в реальном времени."
+  },
+  "mace_model_name": {
+    "value": "Cu_all_finetune",
+    "help": "Имя выходной MACE-модели."
+  },
+  "mace_foundation_model": {
+    "value": "small",
+    "help": "Базовая foundation-модель MACE."
+  },
+  "mace_max_num_epochs": {
+    "value": 50,
+    "help": "Максимум эпох fine-tuning."
+  },
+  "mace_eval_interval": {
+    "value": 5,
+    "help": "Как часто (в эпохах) запускать валидацию."
+  },
+  "mace_lr": {
+    "value": 0.001,
+    "help": "Learning rate."
+  },
+  "mace_batch_size": {
+    "value": 1,
+    "help": "Batch size для MACE."
+  },
+  "mace_valid_fraction": {
+    "value": 0.2,
+    "help": "Доля валидационной выборки."
+  },
+  "mace_energy_weight": {
+    "value": 1,
+    "help": "Вес функции потерь по энергии."
+  },
+  "mace_forces_weight": {
+    "value": 10,
+    "help": "Вес функции потерь по силам."
+  },
+  "device": {
+    "value": null,
+    "help": "Устройство для MACE: 'cpu' или 'gpu'. Если null — берётся из CLI (--cpu/--gpu), иначе cpu."
+  }
+}

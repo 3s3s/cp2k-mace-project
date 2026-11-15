@@ -1,36 +1,20 @@
 #!/usr/bin/env python3
 """
 Модуль генерации случайных кластеров Cu_n (n = 2..N) в 1D, 2D, 3D.
-Для каждой размерности генерируется STRUCTURES_PER_N[n_atoms] структур.
-struct_id = f"{n_atoms}_{dim}_{i}_seed{RANDOM_SEED}_d{ATOM_DIAMETER}"
+Публичная функция: generate_structures(config) -> str (путь к XYZ).
+Все константы берутся из config (dict), который передаёт главный модуль.
 """
 
 import os
 import random
 import numpy as np
 
-# ---------- КОНСТАНТЫ ----------
-ATOM_DIAMETER = 2.0
-MIN_DIST = ATOM_DIAMETER
-MAX_DIST = 2.0 * ATOM_DIAMETER
 
-STRUCTURES_PER_N = {2: 3, 3: 10}
-
-DIMENSIONS_PER_N = {
-    2: [3],
-    3: [2],
-}
-
-OUTPUT_XYZ = os.path.join(os.path.dirname(__file__), "..", "results", "generated_structures.xyz")
-RANDOM_SEED = 42
-BOX_SIZE_MARGIN = 4.0
+def _compute_box_size(n_atoms: int, cfg: dict) -> float:
+    return cfg["max_dist"] * np.sqrt(n_atoms) * cfg["box_size_margin"]
 
 
-def compute_box_size(n_atoms: int) -> float:
-    return MAX_DIST * np.sqrt(n_atoms) * BOX_SIZE_MARGIN
-
-
-def random_point(dim, box_size):
+def _random_point(dim, box_size):
     if dim == 1:
         return np.array([random.uniform(0, box_size), 0.0, 0.0])
     elif dim == 2:
@@ -43,22 +27,26 @@ def random_point(dim, box_size):
         raise ValueError("dim должен быть 1, 2 или 3")
 
 
-def generate_structure_sequential(n_atoms: int, dim: int, max_attempts_per_atom: int = 10000):
-    box_size = compute_box_size(n_atoms)
-    points = [random_point(dim, box_size)]
+def _generate_structure_sequential(n_atoms: int, dim: int, cfg: dict):
+    box_size = _compute_box_size(n_atoms, cfg)
+    min_dist = cfg["min_dist"]
+    max_dist = cfg["max_dist"]
+    max_attempts = cfg["max_attempts_per_atom"]
+
+    points = [_random_point(dim, box_size)]
 
     for atom_idx in range(1, n_atoms):
         placed = False
-        for attempt in range(max_attempts_per_atom):
-            candidate = random_point(dim, box_size)
+        for _ in range(max_attempts):
+            candidate = _random_point(dim, box_size)
             ok = True
             has_close_neighbor = False
             for p in points:
                 d = np.linalg.norm(candidate - p)
-                if d < MIN_DIST:
+                if d < min_dist:
                     ok = False
                     break
-                if d <= MAX_DIST:
+                if d <= max_dist:
                     has_close_neighbor = True
             if ok and has_close_neighbor:
                 points.append(candidate)
@@ -67,17 +55,16 @@ def generate_structure_sequential(n_atoms: int, dim: int, max_attempts_per_atom:
         if not placed:
             raise RuntimeError(
                 f"Не удалось разместить атом {atom_idx + 1} из {n_atoms} "
-                f"для dim={dim} за {max_attempts_per_atom} попыток. "
-                f"BOX_SIZE={box_size:.2f} Å, MIN_DIST={MIN_DIST}, MAX_DIST={MAX_DIST}."
+                f"для dim={dim} за {max_attempts} попыток. "
+                f"BOX_SIZE={box_size:.2f} Å, MIN_DIST={min_dist}, MAX_DIST={max_dist}."
             )
 
     points = np.array(points)
-    center_of_mass = points.mean(axis=0)
-    points = points - center_of_mass + box_size / 2.0
+    points = points - points.mean(axis=0) + box_size / 2.0
     return points, box_size
 
 
-def write_xyz(structures_with_id, n_atoms, dim, box_size, path):
+def _write_xyz(structures_with_id, n_atoms, dim, box_size, path):
     parent_dir = os.path.dirname(path)
     if parent_dir:
         os.makedirs(parent_dir, exist_ok=True)
@@ -96,41 +83,50 @@ def write_xyz(structures_with_id, n_atoms, dim, box_size, path):
                 f.write(f"Cu {p[0]:.8f} {p[1]:.8f} {p[2]:.8f}\n")
 
 
-def main():
-    random.seed(RANDOM_SEED)
+def generate_structures(config: dict) -> str:
+    """
+    Публичная точка входа. Генерирует структуры и пишет их в XYZ.
+
+    :param config: словарь с параметрами (см. config.json).
+    :return: путь к записанному XYZ-файлу.
+    """
+    random_seed = config["random_seed"]
+    atom_diameter = config["atom_diameter"]
+    structures_per_n = {int(k): v for k, v in config["structures_per_n"].items()}
+    dimensions_per_n = {int(k): v for k, v in config["dimensions_per_n"].items()}
+
+    output_xyz = config["output_xyz"]
+    random.seed(random_seed)
 
     print("Параметры генерации:")
-    print(f"  ATOM_DIAMETER = {ATOM_DIAMETER} Å")
-    print(f"  RANDOM_SEED = {RANDOM_SEED}")
-    print(f"  STRUCTURES_PER_N = {STRUCTURES_PER_N}")
-    print(f"  DIMENSIONS_PER_N = {DIMENSIONS_PER_N}")
+    print(f"  ATOM_DIAMETER = {atom_diameter} Å")
+    print(f"  RANDOM_SEED = {random_seed}")
+    print(f"  STRUCTURES_PER_N = {structures_per_n}")
+    print(f"  DIMENSIONS_PER_N = {dimensions_per_n}")
     print()
 
-    if os.path.exists(OUTPUT_XYZ):
-        os.remove(OUTPUT_XYZ)
+    if os.path.exists(output_xyz):
+        os.remove(output_xyz)
 
     total_written = 0
 
-    for n_atoms, n_structs in STRUCTURES_PER_N.items():
-        dims = DIMENSIONS_PER_N.get(n_atoms, [3])
-        box_size = compute_box_size(n_atoms)
+    for n_atoms, n_structs in structures_per_n.items():
+        dims = dimensions_per_n.get(n_atoms, [3])
+        box_size = _compute_box_size(n_atoms, config)
         for dim in dims:
             print(f"Генерация {n_structs} структур для n={n_atoms}, dim={dim}...")
             structures_with_id = []
             for i in range(n_structs):
-                struct_id = f"{n_atoms}_{dim}_{i}_seed{RANDOM_SEED}_d{ATOM_DIAMETER}"
+                struct_id = f"{n_atoms}_{dim}_{i}_seed{random_seed}_d{atom_diameter}"
                 try:
-                    s, _ = generate_structure_sequential(n_atoms, dim)
+                    s, _ = _generate_structure_sequential(n_atoms, dim, config)
                     structures_with_id.append((struct_id, s))
                 except RuntimeError as e:
                     print(f"  ⚠ {e}")
                     continue
-            write_xyz(structures_with_id, n_atoms, dim, box_size, OUTPUT_XYZ)
+            _write_xyz(structures_with_id, n_atoms, dim, box_size, output_xyz)
             total_written += len(structures_with_id)
             print(f"  ✓ Записано {len(structures_with_id)} структур")
 
-    print(f"\nГотово. Всего записано {total_written} структур в {OUTPUT_XYZ}")
-
-
-if __name__ == "__main__":
-    main()
+    print(f"\nГотово. Всего записано {total_written} структур в {output_xyz}")
+    return output_xyz
