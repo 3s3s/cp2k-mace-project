@@ -136,23 +136,23 @@ setup_gpu_runtime() {
     if ! command -v nvidia-smi &>/dev/null || ! nvidia-smi &>/dev/null; then
         echo ">>> NVIDIA driver not found. Attempting automatic installation..."
         
-        # Убедимся, что пакет ubuntu-drivers установлен (в Ubuntu Server его может не быть)
-        if ! command -v ubuntu-drivers &>/dev/null; then
-            echo ">>> Installing ubuntu-drivers-common..."
-            sudo apt-get update
-            sudo apt-get install -y ubuntu-drivers-common
+        # Устанавливаем драйвер напрямую через apt, чтобы избежать зависания ubuntu-drivers
+        echo ">>> Installing nvidia-driver-595-server via apt..."
+        
+        # Обновляем индексы пакетов
+        sudo apt-get update
+        
+        # Пытаемся установить server-версию (предпочтительно для вычислений).
+        # Если пакет не найден, apt завершится с ошибкой, и мы попробуем обычную версию.
+        if ! sudo apt-get install -y nvidia-driver-595-server; then
+            echo ">>> Server driver package not found, trying standard nvidia-driver-595..."
+            sudo apt-get install -y nvidia-driver-595
         fi
-
-        # Устанавливаем драйвер, оптимизированный для вычислений (GPGPU)
-        # Если нужен просто драйвер без приставки -server, можно использовать:
-        # sudo ubuntu-drivers install
-        echo ">>> Installing NVIDIA driver via ubuntu-drivers..."
-        sudo ubuntu-drivers install --gpgpu
         
         # Проверяем, появился ли nvidia-smi после установки
         if ! command -v nvidia-smi &>/dev/null || ! nvidia-smi &>/dev/null; then
             echo "ERROR: Driver installation finished, but nvidia-smi is still not working."
-            echo "       A system reboot is often required after installing NVIDIA drivers."
+            echo "       A system reboot is REQUIRED after installing NVIDIA drivers."
             echo "       Please reboot your server (sudo reboot) and run this script again."
             exit 1
         fi
