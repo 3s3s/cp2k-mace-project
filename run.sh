@@ -5,6 +5,7 @@ set -euo pipefail
 # Параметры по умолчанию
 # ==========================================
 MODE="cpu"
+RUN_MODE="interactive" # interactive | detached
 IMAGE_CPU="ghcr.io/3s3s/cp2k-mace:latest-cpu"
 IMAGE_GPU="ghcr.io/3s3s/cp2k-mace:latest-gpu"
 
@@ -12,16 +13,24 @@ IMAGE_GPU="ghcr.io/3s3s/cp2k-mace:latest-gpu"
 # Разбор аргументов командной строки
 # ==========================================
 usage() {
-    echo "Usage: $0 [--cpu|--gpu]"
-    echo "  --cpu   Run CPU image (default)"
-    echo "  --gpu   Run GPU image (requires NVIDIA driver + nvidia-container-toolkit)"
+    echo "Usage: $0 [--cpu|--gpu] [--detach|-d]"
+    echo "  --cpu       Run CPU image (default)"
+    echo "  --gpu       Run GPU image (requires NVIDIA driver + nvidia-container-toolkit)"
+    echo "  --detach, -d  Run container in background (detached mode)"
+    echo "  -h, --help  Show this help"
     exit 1
 }
+
+# Если аргументов нет — показываем справку
+if [[ $# -eq 0 ]]; then
+    usage
+fi
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --cpu) MODE="cpu"; shift ;;
         --gpu) MODE="gpu"; shift ;;
+        --detach|-d) RUN_MODE="detached"; shift ;;
         -h|--help) usage ;;
         *) echo "Unknown option: $1"; usage ;;
     esac
@@ -155,22 +164,51 @@ fi
 # ==========================================
 # 3. Запуск контейнера
 # ==========================================
-echo ">>> Starting container in $MODE mode..."
-echo ">>> Project directory: $SCRIPT_DIR"
+echo ">>> Starting container in $MODE mode ($RUN_MODE)..."
+
+# Формируем флаги для Docker в зависимости от режима
+DOCKER_FLAGS="-i"
+if [[ "$RUN_MODE" == "interactive" ]]; then
+    DOCKER_FLAGS="-it"
+else
+    DOCKER_FLAGS="-d"
+fi
+
+# Формируем команду внутри контейнера
+# Если фоновый режим, нам нужно запустить сервер, а не просто bash
+if [[ "$RUN_MODE" == "detached" ]]; then
+    # В фоновом режиме запускаем сервер (предполагая, что npm start запускает сервер)
+    # Если у вас сервер запускается иначе, замените npm start на нужную команду
+    CMD="bash -c 'npm install && npm start'"
+else
+    # В интерактивном режиме просто даем пользователю bash
+    CMD="bash -c 'npm install && bash'"
+fi
 
 if [[ "$MODE" == "gpu" ]]; then
-	docker run -it --rm \
-		--gpus all \
-		-p 8443:8443 \
-		-v "$SCRIPT_DIR":/workspace \
-		-w /workspace \
-		"$IMAGE_GPU" \
-		bash -c "npm install && bash"
+    docker run $DOCKER_FLAGS \
+        --gpus all \
+        -p 8443:8443 \
+        -v "$SCRIPT_DIR":/workspace \
+        -w /workspace \
+        --name cp2k-mace-gpu \
+        "$IMAGE_GPU" \
+        $CMD
 else
-	docker run -it --rm \
-		-p 8443:8443 \
-		-v "$SCRIPT_DIR":/workspace \
-		-w /workspace \
-		"$IMAGE_CPU" \
-		bash -c "npm install && bash"
+    docker run $DOCKER_FLAGS \
+        -p 8443:8443 \
+        -v "$SCRIPT_DIR":/workspace \
+        -w /workspace \
+        --name cp2k-mace-cpu \
+        "$IMAGE_CPU" \
+        $CMD
+fi
+
+# Если запустили в фоне, напоминаем как посмотреть логи
+if [[ "$RUN_MODE" == "detached" ]]; then
+    echo ""
+    echo ">>> Container started in background."
+    echo ">>> To view logs:    docker logs -f cp2k-mace-${MODE}"
+    echo ">>> To enter bash:   docker exec -it cp2k-mace-${MODE} bash"
+    echo ">>> To stop:         docker stop cp2k-mace-${MODE}"
 fi
