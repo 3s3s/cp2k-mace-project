@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Устанавливаем Midnight Commander (и другие утилиты) в самом конце
-RUN apt-get update && apt-get install -y mc \
+RUN apt-get update && apt-get install -y mc git ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Создаем рабочую директорию
