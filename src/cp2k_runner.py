@@ -151,38 +151,52 @@ def parse_forces(forcefile: str):
 
 
 def parse_homo_lumo(outfile: str, hartree_to_ev: float):
-    homo = None
-    lumo = None
+    """
+    Ищет строку вида:
+      HOMO - LUMO gap [eV] :    1.384688
+    Возвращает значение в eV или None.
+    """
+    pattern = re.compile(
+        r"HOMO\s*-\s*LUMO\s+gap\s*\[eV\]\s*:\s*(-?\d+\.\d+)",
+        re.IGNORECASE,
+    )
     with open(outfile, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
-            if "HOMO" in line and "=" in line:
-                m = re.search(r"=\s*(-?\d+\.\d+)", line)
-                if m:
-                    homo = float(m.group(1))
-            if "LUMO" in line and "=" in line:
-                m = re.search(r"=\s*(-?\d+\.\d+)", line)
-                if m:
-                    lumo = float(m.group(1))
-    if homo is not None and lumo is not None:
-        return (lumo - homo) * hartree_to_ev
+            m = pattern.search(line)
+            if m:
+                return float(m.group(1))
     return None
 
 
 def parse_magnetic_moment(outfile: str):
+    """
+    Ищет магнитный момент в выводе CP2K.
+    Возможные форматы:
+      Total Magnetic Moment :   1.000000
+      Integrated spin density :   1.000000
+      Magnetization (spin) :   1.000000
+    Возвращает float или None.
+    """
     with open(outfile, "r", encoding="utf-8", errors="replace") as f:
         content = f.read()
 
-    m = re.search(r"Total Magnetic Moment\s*[:=]\s*(-?\d+\.\d+)", content)
+    # 1. Total Magnetic Moment
+    m = re.search(r"Total\s+Magnetic\s+Moment\s*[:=]\s*(-?\d+\.\d+)", content, re.IGNORECASE)
     if m:
         return float(m.group(1))
 
-    m = re.search(r"Integrated spin density\s*[:=]\s*(-?\d+\.\d+)", content)
+    # 2. Integrated spin density
+    m = re.search(r"Integrated\s+spin\s+density\s*[:=]\s*(-?\d+\.\d+)", content, re.IGNORECASE)
+    if m:
+        return float(m.group(1))
+
+    # 3. Magnetization (spin)
+    m = re.search(r"Magnetization\s*\(spin\)\s*[:=]\s*(-?\d+\.\d+)", content, re.IGNORECASE)
     if m:
         return float(m.group(1))
 
     return None
-
-
+    
 # ---------- Запуск CP2K ----------
 def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict):
     """
