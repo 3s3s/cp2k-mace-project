@@ -107,7 +107,7 @@ def write_cp2k_input(inp_path: str, project: str, coords, cfg: dict):
 # ---------- Парсинг ----------
 def parse_energy(outfile: str) -> float:
     pattern = re.compile(
-        r"ENERGY\|\s+Total FORCE_EVAL.*?energy \[hartree\]\s+(-?\d+\.\d+)"
+        r"ENERGY\|\s+Total FORCE_EVAL.*?energy\s+\[(?:hartree|a\.u\.)\]\s*:\s*(-?\d+\.\d+)"
     )
     with open(outfile, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
@@ -115,8 +115,8 @@ def parse_energy(outfile: str) -> float:
             if m:
                 return float(m.group(1))
     raise ValueError(f"Энергия не найдена в {outfile}")
-
-
+    
+    
 def parse_forces(forcefile: str):
     forces = []
     with open(forcefile, "r", encoding="utf-8", errors="replace") as f:
