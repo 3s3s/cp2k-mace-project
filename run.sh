@@ -134,9 +134,29 @@ install_nvidia_toolkit() {
 setup_gpu_runtime() {
     # 1. Проверяем драйвер NVIDIA
     if ! command -v nvidia-smi &>/dev/null || ! nvidia-smi &>/dev/null; then
-        echo "ERROR: NVIDIA driver not found or not working."
-        echo "       Install NVIDIA driver first (e.g. 'sudo ubuntu-drivers install'), reboot, then rerun."
-        exit 1
+        echo ">>> NVIDIA driver not found. Attempting automatic installation..."
+        
+        # Убедимся, что пакет ubuntu-drivers установлен (в Ubuntu Server его может не быть)
+        if ! command -v ubuntu-drivers &>/dev/null; then
+            echo ">>> Installing ubuntu-drivers-common..."
+            sudo apt-get update
+            sudo apt-get install -y ubuntu-drivers-common
+        fi
+
+        # Устанавливаем драйвер, оптимизированный для вычислений (GPGPU)
+        # Если нужен просто драйвер без приставки -server, можно использовать:
+        # sudo ubuntu-drivers install
+        echo ">>> Installing NVIDIA driver via ubuntu-drivers..."
+        sudo ubuntu-drivers install --gpgpu
+        
+        # Проверяем, появился ли nvidia-smi после установки
+        if ! command -v nvidia-smi &>/dev/null || ! nvidia-smi &>/dev/null; then
+            echo "ERROR: Driver installation finished, but nvidia-smi is still not working."
+            echo "       A system reboot is often required after installing NVIDIA drivers."
+            echo "       Please reboot your server (sudo reboot) and run this script again."
+            exit 1
+        fi
+        echo ">>> NVIDIA driver installed successfully."
     fi
     echo ">>> NVIDIA driver detected."
 
