@@ -166,7 +166,7 @@ fi
 # ==========================================
 echo ">>> Starting container in $MODE mode ($RUN_MODE)..."
 
-# Формируем флаги для Docker в зависимости от режима
+# Формируем флаги для Docker
 DOCKER_FLAGS="-i"
 if [[ "$RUN_MODE" == "interactive" ]]; then
     DOCKER_FLAGS="-it"
@@ -174,41 +174,62 @@ else
     DOCKER_FLAGS="-d"
 fi
 
-# Формируем команду внутри контейнера
-# Если фоновый режим, нам нужно запустить сервер, а не просто bash
-if [[ "$RUN_MODE" == "detached" ]]; then
-    # В фоновом режиме запускаем сервер (предполагая, что npm start запускает сервер)
-    # Если у вас сервер запускается иначе, замените npm start на нужную команду
-    CMD="bash -c 'npm install && npm start'"
-else
-    # В интерактивном режиме просто даем пользователю bash
-    CMD="bash -c 'npm install && bash'"
+# Формируем имя контейнера
+CONTAINER_NAME="cp2k-mace-$MODE"
+
+# Удаляем старый контейнер с таким же именем, если он есть (чтобы не было конфликта)
+if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo ">>> Removing existing container $CONTAINER_NAME..."
+    docker rm -f "$CONTAINER_NAME" >/dev/null
 fi
 
 if [[ "$MODE" == "gpu" ]]; then
-    docker run $DOCKER_FLAGS \
-        --gpus all \
-        -p 8443:8443 \
-        -v "$SCRIPT_DIR":/workspace \
-        -w /workspace \
-        --name cp2k-mace-gpu \
-        "$IMAGE_GPU" \
-        $CMD
+    # Для GPU
+    if [[ "$RUN_MODE" == "detached" ]]; then
+        docker run $DOCKER_FLAGS \
+            --gpus all \
+            -p 8443:8443 \
+            -v "$SCRIPT_DIR":/workspace \
+            -w /workspace \
+            --name "$CONTAINER_NAME" \
+            "$IMAGE_GPU" \
+            bash -c "npm install && npm start"
+    else
+        docker run $DOCKER_FLAGS \
+            --gpus all \
+            -p 8443:8443 \
+            -v "$SCRIPT_DIR":/workspace \
+            -w /workspace \
+            --name "$CONTAINER_NAME" \
+            "$IMAGE_GPU" \
+            bash -c "npm install && bash"
+    fi
 else
-    docker run $DOCKER_FLAGS \
-        -p 8443:8443 \
-        -v "$SCRIPT_DIR":/workspace \
-        -w /workspace \
-        --name cp2k-mace-cpu \
-        "$IMAGE_CPU" \
-        $CMD
+    # Для CPU
+    if [[ "$RUN_MODE" == "detached" ]]; then
+        docker run $DOCKER_FLAGS \
+            -p 8443:8443 \
+            -v "$SCRIPT_DIR":/workspace \
+            -w /workspace \
+            --name "$CONTAINER_NAME" \
+            "$IMAGE_CPU" \
+            bash -c "npm install && npm start"
+    else
+        docker run $DOCKER_FLAGS \
+            -p 8443:8443 \
+            -v "$SCRIPT_DIR":/workspace \
+            -w /workspace \
+            --name "$CONTAINER_NAME" \
+            "$IMAGE_CPU" \
+            bash -c "npm install && bash"
+    fi
 fi
 
 # Если запустили в фоне, напоминаем как посмотреть логи
 if [[ "$RUN_MODE" == "detached" ]]; then
     echo ""
     echo ">>> Container started in background."
-    echo ">>> To view logs:    docker logs -f cp2k-mace-${MODE}"
-    echo ">>> To enter bash:   docker exec -it cp2k-mace-${MODE} bash"
-    echo ">>> To stop:         docker stop cp2k-mace-${MODE}"
+    echo ">>> To view logs:    docker logs -f $CONTAINER_NAME"
+    echo ">>> To enter bash:   docker exec -it $CONTAINER_NAME bash"
+    echo ">>> To stop:         docker stop $CONTAINER_NAME"
 fi
