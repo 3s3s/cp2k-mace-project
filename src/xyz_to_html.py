@@ -38,12 +38,27 @@ def read_all_structures(xyz_path):
             energy_eV = None
             m = re.search(r"energy\s*=\s*(-?\d+\.?\d*(?:[eE][-+]?\d+)?)", comment)
             if m: energy_eV = float(m.group(1))
+
+            # --- HOMO-LUMO gap ---
+            gap_eV = None
+            m = re.search(r"homo_lumo_gap\s*=\s*(-?\d+\.?\d*(?:[eE][-+]?\d+)?)", comment)
+            if m: gap_eV = float(m.group(1))
+
+            # --- Магнитный момент ---
+            mag_moment = None
+            m = re.search(r"magnetic_moment\s*=\s*(-?\d+\.?\d*(?:[eE][-+]?\d+)?)", comment)
+            if m: mag_moment = float(m.group(1))
+
+            # --- binding_energy_per_atom (если есть) ---
+            be_per_atom = None
+            m = re.search(r"binding_energy_per_atom\s*=\s*(-?\d+\.?\d*(?:[eE][-+]?\d+)?)", comment)
+            if m: be_per_atom = float(m.group(1))
             
             # Извлекаем n_atoms и dim из comment для инфо-панели
             m_n = re.search(r"n_atoms=(\d+)", comment)
             n_atoms_meta = int(m_n.group(1)) if m_n else n_atoms
             
-            m_d = re.search(r"dim=(\d+)", comment)
+            m_d = re.search(r"dim=(-?\d+)", comment)
             dim_meta = int(m_d.group(1)) if m_d else -1
 
             atoms = []
@@ -54,6 +69,9 @@ def read_all_structures(xyz_path):
             structures.append({
                 "atoms": atoms,
                 "energy": energy_eV,
+                "gap": gap_eV,
+                "mag": mag_moment,
+                "be_per_atom": be_per_atom,
                 "n_atoms": n_atoms_meta,
                 "dim": dim_meta,
             })
@@ -81,8 +99,11 @@ def generate_html(structures, output_path):
         info_lines = [
             f"<b>Кластер:</b> {formula}",
             f"<b>Число атомов:</b> {s['n_atoms']}",
-            f"<b>Размерность (генерация):</b> {s['dim']}D",
         ]
+        # Размерность показываем только если она >= 0 (для оптимизированных может быть -1)
+        if s["dim"] >= 0:
+            info_lines.append(f"<b>Размерность (генерация):</b> {s['dim']}D")
+
         if "single" in dists:
             info_lines.append(f"<b>Расстояние Cu–Cu:</b> {dists['single']:.4f} Å")
         elif "min" in dists:
@@ -91,6 +112,19 @@ def generate_html(structures, output_path):
             
         if s["energy"] is not None:
             info_lines.append(f"<b>Энергия:</b> {s['energy']:.6f} eV")
+
+        if s["be_per_atom"] is not None:
+            info_lines.append(f"<b>Энергия связи:</b> {s['be_per_atom']:.4f} eV/atom")
+
+        if s["gap"] is not None:
+            info_lines.append(f"<b>HOMO-LUMO gap:</b> {s['gap']:.4f} eV")
+        else:
+            info_lines.append(f"<b>HOMO-LUMO gap:</b> <span style='color:#888;'>н/д</span>")
+
+        if s["mag"] is not None:
+            info_lines.append(f"<b>Магнитный момент:</b> {s['mag']:.4f} μB")
+        else:
+            info_lines.append(f"<b>Магнитный момент:</b> <span style='color:#888;'>н/д</span>")
             
         js_structures.append({
             "atoms": atoms_list,
@@ -125,7 +159,6 @@ def generate_html(structures, output_path):
             gap: 10px;
             padding: 10px;
             flex-grow: 1;
-            /* Скрываем скроллбар для красоты */
             scrollbar-width: none; 
         }}
         #gallery::-webkit-scrollbar {{ display: none; }}
@@ -168,9 +201,9 @@ def generate_html(structures, output_path):
 
         /* Панель информации */
         #panel {{
-            position: absolute; top: 20px; right: 20px; width: 280px;
+            position: absolute; top: 20px; right: 20px; width: 300px;
             color: #ddd; font-size: 13px; background: rgba(0,0,0,0.7);
-            padding: 15px; border-radius: 8px; line-height: 1.6;
+            padding: 15px; border-radius: 8px; line-height: 1.7;
             pointer-events: none; border: 1px solid #445566;
         }}
         #panel h3 {{ margin: 0 0 10px 0; color: #fff; font-size: 16px; border-bottom: 1px solid #555; padding-bottom: 6px; }}
@@ -258,7 +291,6 @@ def generate_html(structures, output_path):
 
         // Очистка группы и загрузка новой молекулы
         function loadStructure(index) {{
-            // Очищаем группу
             while(moleculeGroup.children.length > 0) {{ 
                 moleculeGroup.remove(moleculeGroup.children[0]); 
             }}
@@ -266,7 +298,6 @@ def generate_html(structures, output_path):
             const data = structuresData[index];
             const atoms = data.atoms;
             
-            // Центр масс
             let cx = 0, cy = 0, cz = 0;
             atoms.forEach(a => {{ cx += a.x; cy += a.y; cz += a.z; }});
             cx /= atoms.length; cy /= atoms.length; cz /= atoms.length;
@@ -279,15 +310,12 @@ def generate_html(structures, output_path):
                 moleculeGroup.add(sphere);
             }});
 
-            // Обновляем инфо-панель
             document.getElementById('info-content').innerHTML = data.info_html;
 
-            // Сброс камеры
             moleculeGroup.rotation.set(0, 0, 0);
             zoomDistance = DEFAULT_DISTANCE;
             updateCamera();
 
-            // Обновляем активный класс в галерее
             document.querySelectorAll('.thumb').forEach(t => t.classList.remove('active'));
             document.querySelector(`.thumb[data-index="${{index}}"]`).classList.add('active');
         }}
@@ -324,14 +352,12 @@ def generate_html(structures, output_path):
         dom.addEventListener('dblclick', resetAction);
         document.getElementById('btn-reset').onclick = resetAction;
 
-        // Анимация
         function animate() {{ 
             requestAnimationFrame(animate); 
             renderer.render(scene, camera); 
         }}
         animate();
 
-        // Ресайз
         window.addEventListener('resize', () => {{
             const w = container.clientWidth;
             const h = container.clientHeight;
@@ -349,18 +375,15 @@ def generate_html(structures, output_path):
             thumb.className = 'thumb';
             thumb.dataset.index = index;
             
-            // Рисуем миниатюру через 2D Canvas (проекция)
             const canvas2d = document.createElement('canvas');
             canvas2d.width = 100;
             canvas2d.height = 100;
             const ctx = canvas2d.getContext('2d');
             
-            // Вычисляем 2D координаты
             let cx = 0, cy = 0, cz = 0;
             data.atoms.forEach(a => {{ cx += a.x; cy += a.y; cz += a.z; }});
             cx /= data.atoms.length; cy /= data.atoms.length; cz /= data.atoms.length;
             
-            // Находим максимальный разброс для масштабирования
             let maxD = 0;
             data.atoms.forEach(a => {{
                 const d = Math.sqrt((a.x-cx)**2 + (a.y-cy)**2 + (a.z-cz)**2);
@@ -368,12 +391,11 @@ def generate_html(structures, output_path):
             }});
             const scale = 40 / (maxD || 1);
 
-            // Рисуем атомы (сортируем по Z для правильного перекрытия)
             const sortedAtoms = [...data.atoms].sort((a, b) => a.z - b.z);
             sortedAtoms.forEach(a => {{
                 const x = 50 + (a.x - cx) * scale;
-                const y = 50 - (a.y - cy) * scale; // Инверсия Y для Canvas
-                const r = Math.max(3, ATOM_RADIUS * scale * 0.8); // Радиус на миниатюре
+                const y = 50 - (a.y - cy) * scale;
+                const r = Math.max(3, ATOM_RADIUS * scale * 0.8);
 
                 ctx.beginPath();
                 ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -386,18 +408,15 @@ def generate_html(structures, output_path):
             
             thumb.appendChild(canvas2d);
             
-            // Подпись
             const label = document.createElement('div');
             label.className = 'thumb-label';
             label.innerText = data.formula;
             thumb.appendChild(label);
 
-            // Обработчик клика
             thumb.onclick = () => loadStructure(index);
             galleryDiv.appendChild(thumb);
         }});
 
-        // Кнопки прокрутки галереи
         document.getElementById('scroll-left').onclick = () => {{
             galleryDiv.scrollLeft -= 200;
         }};
@@ -405,7 +424,6 @@ def generate_html(structures, output_path):
             galleryDiv.scrollLeft += 200;
         }};
 
-        // Загружаем первую структуру при старте
         if (structuresData.length > 0) {{
             loadStructure(0);
         }}

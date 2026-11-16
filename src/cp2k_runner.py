@@ -171,30 +171,31 @@ def parse_homo_lumo(outfile: str, hartree_to_ev: float):
 def parse_magnetic_moment(outfile: str):
     """
     Ищет магнитный момент в выводе CP2K.
-    Возможные форматы:
-      Total Magnetic Moment :   1.000000
-      Integrated spin density :   1.000000
-      Magnetization (spin) :   1.000000
-    Возвращает float или None.
+    Основной источник — строка:
+      # Total charge and spin       11.000000    11.000000    -0.000000     0.000000
+    Последнее число — суммарный спиновый момент в μB.
     """
     with open(outfile, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            if "Total charge and spin" in line:
+                parts = line.split()
+                # parts[-1] — последнее число (спиновый момент)
+                try:
+                    return float(parts[-1])
+                except (ValueError, IndexError):
+                    continue
+
+    # На случай, если формат другой — старые паттерны
+    with open(outfile, "r", encoding="utf-8", errors="replace") as f:
         content = f.read()
-
-    # 1. Total Magnetic Moment
-    m = re.search(r"Total\s+Magnetic\s+Moment\s*[:=]\s*(-?\d+\.\d+)", content, re.IGNORECASE)
-    if m:
-        return float(m.group(1))
-
-    # 2. Integrated spin density
-    m = re.search(r"Integrated\s+spin\s+density\s*[:=]\s*(-?\d+\.\d+)", content, re.IGNORECASE)
-    if m:
-        return float(m.group(1))
-
-    # 3. Magnetization (spin)
-    m = re.search(r"Magnetization\s*\(spin\)\s*[:=]\s*(-?\d+\.\d+)", content, re.IGNORECASE)
-    if m:
-        return float(m.group(1))
-
+    for pat in [
+        r"Total\s+Magnetic\s+Moment\s*[:=]\s*(-?\d+\.\d+)",
+        r"Integrated\s+absolute\s+spin\s+density\s*[:=]\s*(-?\d+\.\d+)",
+        r"Magnetization\s*\(spin\)\s*[:=]\s*(-?\d+\.\d+)",
+    ]:
+        m = re.search(pat, content, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
     return None
     
 # ---------- Запуск CP2K ----------

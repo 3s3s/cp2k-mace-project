@@ -20,6 +20,7 @@ import numpy as np
 from mace.calculators import MACECalculator
 from find_minimum import run_find_minimum
 from xyz_to_html import structure_to_html
+from ase.io import read, write
 
 from structure_generator import generate_structures
 import cp2k_runner
@@ -247,20 +248,17 @@ def get_done_ids(xyz_path):
                 break
             comment = f.readline().strip()
             
-            # Захватываем всё до пробела или кавычки
             m_id = re.search(r'struct_id=["\']?([^"\'\s]+)["\']?', comment)
             if m_id:
                 sid = m_id.group(1)
-                # --- ИСПРАВЛЕНИЕ ---
-                # Если ID заканчивается на ".0", отрезаем это
                 if sid.endswith(".0"):
                     sid = sid[:-2]
-                # -------------------
                 done.add(sid)
             for _ in range(n_atoms):
                 f.readline()
     return done
-    
+
+
 # ---------- main ----------
 def main():
     install_tee_logger()
@@ -434,7 +432,82 @@ def _main_impl():
         if be_per_atom is not None:
             print(f"       Энергия связи: {be_per_atom:.4f} eV/atom")
 
-    # 7) Сборка всех минимумов + HTML
+    # 7) Повторный CP2K для оптимизированных структур
+    print("\n" + "=" * 60)
+    print("ПОВТОРНЫЙ CP2K ДЛЯ ОПТИМИЗИРОВАННЫХ СТРУКТУР")
+    print("=" * 60)
+
+    for n_atoms in sorted(result.keys()):
+        r = result[n_atoms]
+        out_n_file = r["output_file"]
+
+        if not os.path.exists(out_n_file):
+            print(f"  ! Файл {out_n_file} не найден, пропускаю n={n_atoms}")
+            continue
+
+        # Читаем оптимизированную структуру
+        opt_atoms = read(out_n_file)
+        coords = opt_atoms.get_positions().tolist()
+        struct_id_opt = f"opt_n{n_atoms}"
+
+        print(f"\n  [n={n_atoms}] Повторный CP2K для оптимизированной структуры...")
+
+        # Пишем .inp
+        safe_id = re.sub(r"[^a-zA-Z0-9_]", "_", struct_id_opt)
+        project = f"{CONFIG['element']}{n_atoms}_{safe_id}"
+        inp_path = os.path.join(CONFIG["output_dir"], f"{project}.inp")
+        out_path = os.path.join(CONFIG["output_dir"], f"{project}.out")
+        force_path = os.path.join(CONFIG["output_dir"], f"{project}.forces")
+
+        cp2k_runner.write_cp2k_input(inp_path, project, coords, CONFIG)
+
+        t0 = time.time()
+        is_cp2k_error, rc = cp2k_runner.run_cp2k_with_live_log(
+            inp_path, out_path, CONFIG["timeout_per_config"], CONFIG["output_dir"], CONFIG
+        )
+        elapsed = time.time() - t0
+
+        if rc != 0:
+            print(f"  ✗ CP2K для оптимизированной n={n_atoms} завершился с ошибкой (код {rc})")
+            continue
+
+        try:
+            energy = cp2k_runner.parse_energy(out_path)
+            forces = cp2k_runner.parse_forces(force_path)
+            gap = cp2k_runner.parse_homo_lumo(out_path, CONFIG["hartree_to_ev"])
+            mag = cp2k_runner.parse_magnetic_moment(out_path)
+        except Exception as e:
+            print(f"  ✗ Ошибка парсинга для n={n_atoms}: {e}")
+            continue
+
+        energy_ev = energy * CONFIG["hartree_to_ev"]
+        forces_ev_ang = [
+            [fx * CONFIG["hartree_bohr_to_ev_ang"],
+             fy * CONFIG["hartree_bohr_to_ev_ang"],
+             fz * CONFIG["hartree_bohr_to_ev_ang"]]
+            for fx, fy, fz in forces
+        ]
+
+        # Обновляем XYZ-запись
+        new_content = cp2k_runner.build_xyz_record(
+            coords, energy_ev, forces_ev_ang, n_atoms, -1, struct_id_opt,
+            CONFIG, gap, mag,
+        )
+        with open(out_n_file, "w") as f:
+            f.write(new_content)
+
+        # Сохраняем в result для финального отчёта
+        r["homo_lumo_gap"] = gap
+        r["magnetic_moment"] = mag
+
+        msg = f"  ✓ n={n_atoms}: E = {energy_ev:.6f} eV за {elapsed:.1f} с"
+        if gap is not None:
+            msg += f", Gap = {gap:.4f} eV"
+        if mag is not None:
+            msg += f", MagMom = {mag:.4f} μB"
+        print(msg)
+
+    # 8) Сборка всех минимумов + HTML
     print("\n" + "=" * 60)
     print("СБОРКА ВСЕХ МИНИМУМОВ В ОДИН ФАЙЛ И ГЕНЕРАЦИЯ HTML")
     print("=" * 60)
@@ -453,6 +526,7 @@ def _main_impl():
             with open(out_n_file, "r") as f_in:
                 content = f_in.read()
 
+            # Добавляем binding_energy_per_atom в комментарий
             if "binding_energy_per_atom" in r:
                 be = r["binding_energy_per_atom"]
                 lines = content.split("\n")
