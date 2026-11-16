@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
 """
-Модуль для работы с CP2K:
-  - генерация .inp из шаблона;
-  - запуск CP2K с live-логом, детекцией SCF-расхождения и таймаутом;
-  - парсинг энергии, сил, HOMO-LUMO gap, магнитного момента;
-  - расчёт/кэширование энергии изолированного атома;
-  - высокоуровневая функция run_dft_for_structures() для пакетной обработки.
-
-Все константы берутся из config (dict), который передаёт главный модуль.
+Модуль для работы с CP2K.
 """
 
 import os
@@ -48,6 +41,7 @@ TEMPLATE = """&GLOBAL
     &XC
       &XC_FUNCTIONAL PBE
       &END XC_FUNCTIONAL
+      MAX_MEMORY 500
     &END XC
     &POISSON
       POISSON_SOLVER WAVELET
@@ -94,13 +88,8 @@ def write_cp2k_input(inp_path: str, project: str, coords, cfg: dict):
     import numpy as np
     
     coords_arr = np.array(coords)
-    # Находим геометрический центр структуры
     center_of_mass = coords_arr.mean(axis=0)
-    
-    # Центр ячейки CP2K (половина cell_size)
     cell_center = np.array([cfg["cell_size"] / 2.0] * 3)
-    
-    # Сдвигаем все атомы так, чтобы центр масс совпал с центром ячейки
     coords_arr = coords_arr - center_of_mass + cell_center
     
     coords_block = "\n".join(
@@ -114,6 +103,7 @@ def write_cp2k_input(inp_path: str, project: str, coords, cfg: dict):
             coords_block=coords_block,
             element=cfg["element"],
         ))
+
 
 # ---------- Парсинг ----------
 def parse_energy(outfile: str) -> float:
@@ -195,8 +185,14 @@ def parse_magnetic_moment(outfile: str):
 
 
 # ---------- Запуск CP2K ----------
-# ---------- Запуск CP2K ----------
-def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict) -> bool:
+def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict):
+    """
+    Возвращает (is_cp2k_error, returncode).
+    - returncode > 0: внутренняя ошибка CP2K (структуру надо пометить как сбойную).
+    - returncode < 0: системная ошибка (SIGKILL/OOM), структуру помечать НЕЛЬЗЯ.
+    - Таймаут/расхождение SCF: возвращаем (True, -1), так как структура, скорее всего, проблемная.
+    - Успех: (False, 0).
+    """
     interesting = re.compile(
         r"(SCF WAVEFUNCTION|OT DIIS|OT SD|SCF run converged|"
         r"ENERGY\||ABORT|WARNING|error|Error|Total energy|"
@@ -214,22 +210,21 @@ def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict) -> b
                 encoding="utf-8", errors="replace",
             )
         except FileNotFoundError:
-            print(f"    ! ОШИБКА: Команда '{cfg['cp2k_cmd']}' не найдена в PATH на этом сервере.")
-            return False
-            
+            print(f"    ! ОШИБКА: Команда '{cfg['cp2k_cmd']}' не найдена в PATH.")
+            return (False, -2)  # Системная ошибка (не вина структуры)
+
         start_time = time.time()
         last_print = start_time
 
         scf_convergence_history = []
         MAX_STALLED_STEPS = 10
-        last_lines = []  # <-- БУФЕР ДЛЯ ПОСЛЕДНИХ СТРОК
+        last_lines = []
 
         try:
             for line in proc.stdout:
                 fout.write(line)
                 fout.flush()
-                
-                # Сохраняем последние 15 строк для отладки
+
                 last_lines.append(line.rstrip())
                 if len(last_lines) > 15:
                     last_lines.pop(0)
@@ -249,7 +244,7 @@ def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict) -> b
                         if min(recent) >= scf_convergence_history[-MAX_STALLED_STEPS - 1]:
                             print(f"    ! ОБНАРУЖЕНО РАСХОЖДЕНИЕ SCF на шаге {step}. Убиваю CP2K.")
                             proc.kill()
-                            return False
+                            return (True, -1)  # Считаем это проблемой структуры
 
                 if time.time() - last_print > 60:
                     elapsed = int(time.time() - start_time)
@@ -259,31 +254,38 @@ def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict) -> b
                 if timeout is not None and (time.time() - start_time) > timeout:
                     print(f"    ! ТАЙМАУТ ({timeout} с) — убиваю CP2K")
                     proc.kill()
-                    return False
+                    return (True, -1)  # Считаем это проблемой структуры
 
             proc.wait(timeout=30)
         except subprocess.TimeoutExpired:
             proc.kill()
-            print("    ! ТАЙМАУТ при ожидании завершения процесса после kill")
-            return False
-        
-        # --- ОТЛАДКА ПРИ ОШИБКЕ ---
-        if proc.returncode != 0:
-            print(f"    ! CP2K завершился с кодом возврата {proc.returncode}.")
+            return (True, -1)
+
+        rc = proc.returncode
+
+        if rc > 0:
+            # Внутренняя ошибка CP2K
+            print(f"    ! CP2K завершился с кодом возврата {rc} (внутренняя ошибка).")
             print(f"    ! Последние строки вывода:")
-            for line in last_lines:
-                print(f"      > {line}")
+            for l in last_lines:
+                print(f"      > {l}")
             print(f"    ! Полный лог сохранен в: {out_file}")
-            return False
-            
-        return True
+            return (True, rc)
+
+        if rc < 0:
+            # Системная ошибка (SIGKILL и т.п.) — не вина структуры
+            print(f"    ! CP2K убит сигналом {-rc} (системная ошибка, вероятно OOM).")
+            print(f"    ! Структура НЕ будет помечена как сбойная, попробуйте освободить RAM и перезапустить.")
+            for l in last_lines:
+                print(f"      > {l}")
+            print(f"    ! Полный лог сохранен в: {out_file}")
+            return (False, rc)
+
+        return (False, 0)
+
 
 # ---------- Энергия изолированного атома ----------
 def calculate_isolated_atom_energy(cfg: dict):
-    """
-    Возвращает энергию изолированного атома в eV или None при ошибке.
-    Кэширует результат в cfg["isolated_atom_energy_file"].
-    """
     print("\n" + "=" * 60)
     print(f"ПРОВЕРКА/РАСЧЁТ ЭНЕРГИИ ИЗОЛИРОВАННОГО АТОМА {cfg['element']}")
     print("=" * 60)
@@ -307,10 +309,10 @@ def calculate_isolated_atom_energy(cfg: dict):
 
     write_cp2k_input(inp_path, project, coords, cfg)
 
-    ok = run_cp2k_with_live_log(
+    is_cp2k_error, rc = run_cp2k_with_live_log(
         inp_path, out_path, cfg["timeout_per_config"], cfg["output_dir"], cfg
     )
-    if not ok:
+    if is_cp2k_error or rc != 0:
         print("✗ Не удалось посчитать изолированный атом. Энергия связи не будет рассчитана.")
         return None
 
@@ -332,7 +334,6 @@ def calculate_isolated_atom_energy(cfg: dict):
 # ---------- Высокоуровневый API ----------
 def build_xyz_record(coords, energy_ev, forces_ev_ang, n_atoms, dim, struct_id,
                      cfg: dict, gap_ev=None, mag_moment=None, extra_comment=""):
-    """Собирает XYZ-запись с расширенным comment."""
     extra = ""
     if gap_ev is not None:
         extra += f"homo_lumo_gap={gap_ev:.6f} "
@@ -358,17 +359,6 @@ def build_xyz_record(coords, energy_ev, forces_ev_ang, n_atoms, dim, struct_id,
 
 
 def run_dft_for_structures(structures, xyz_path, done_ids, failed_ids, cfg: dict):
-    """
-    Прогоняет CP2K по списку структур, дописывая результаты в xyz_path.
-    Пропускает struct_id из done_ids и failed_ids.
-    Помечает сбойные struct_id в cfg["failed_ids_file"].
-
-    :param structures: список dict (n_atoms, dim, struct_id, coords)
-    :param xyz_path: путь к выходному XYZ
-    :param done_ids: set уже посчитанных struct_id (мутируется)
-    :param failed_ids: set сбойных struct_id (мутируется)
-    :param cfg: конфиг
-    """
     with open(xyz_path, "a") as xyz:
         for idx, s in enumerate(structures):
             n_atoms = s["n_atoms"]
@@ -396,16 +386,22 @@ def run_dft_for_structures(structures, xyz_path, done_ids, failed_ids, cfg: dict
             write_cp2k_input(inp_path, project, coords, cfg)
 
             t0 = time.time()
-            ok = run_cp2k_with_live_log(
+            is_cp2k_error, rc = run_cp2k_with_live_log(
                 inp_path, out_path, cfg["timeout_per_config"], cfg["output_dir"], cfg
             )
             elapsed = time.time() - t0
 
-            if not ok:
-                print(f"  ✗ CP2K завершился с ошибкой/таймаутом за {elapsed:.1f} с")
-                print(f"  ! Помечаю {struct_id} как сбойную")
-                _mark_as_failed(struct_id, cfg["failed_ids_file"])
-                failed_ids.add(struct_id)
+            if rc != 0:
+                # Различаем внутреннюю (rc>0) и системную (rc<0) ошибки
+                if rc > 0 or is_cp2k_error:
+                    print(f"  ✗ Внутренняя ошибка CP2K (код {rc}) за {elapsed:.1f} с")
+                    print(f"  ! Помечаю {struct_id} как сбойную")
+                    _mark_as_failed(struct_id, cfg["failed_ids_file"])
+                    failed_ids.add(struct_id)
+                else:
+                    print(f"  ⚠ Системная ошибка (код {rc}) за {elapsed:.1f} с")
+                    print(f"  ! Структура {struct_id} НЕ помечена как сбойная (проблема не в ней).")
+                    print(f"  ! Освободите память и перезапустите, структура будет посчитана снова.")
                 continue
 
             try:
