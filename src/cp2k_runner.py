@@ -195,6 +195,7 @@ def parse_magnetic_moment(outfile: str):
 
 
 # ---------- Запуск CP2K ----------
+# ---------- Запуск CP2K ----------
 def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict) -> bool:
     interesting = re.compile(
         r"(SCF WAVEFUNCTION|OT DIIS|OT SD|SCF run converged|"
@@ -205,22 +206,33 @@ def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict) -> b
     scf_step_re = re.compile(r"^\s*(\d+)\s+OT\s+\S+\s+[\d.E+-]+\s+[\d.]+\s+([\d.E+-]+)")
 
     with open(out_file, "w", encoding="utf-8", errors="replace") as fout:
-        proc = subprocess.Popen(
-            [cfg["cp2k_cmd"], "-i", os.path.basename(inp_file)],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1, cwd=workdir,
-            encoding="utf-8", errors="replace",
-        )
+        try:
+            proc = subprocess.Popen(
+                [cfg["cp2k_cmd"], "-i", os.path.basename(inp_file)],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1, cwd=workdir,
+                encoding="utf-8", errors="replace",
+            )
+        except FileNotFoundError:
+            print(f"    ! ОШИБКА: Команда '{cfg['cp2k_cmd']}' не найдена в PATH на этом сервере.")
+            return False
+            
         start_time = time.time()
         last_print = start_time
 
         scf_convergence_history = []
         MAX_STALLED_STEPS = 10
+        last_lines = []  # <-- БУФЕР ДЛЯ ПОСЛЕДНИХ СТРОК
 
         try:
             for line in proc.stdout:
                 fout.write(line)
                 fout.flush()
+                
+                # Сохраняем последние 15 строк для отладки
+                last_lines.append(line.rstrip())
+                if len(last_lines) > 15:
+                    last_lines.pop(0)
 
                 if cfg["verbose_cp2k"] and interesting.search(line):
                     print(f"    | {line.rstrip()}")
@@ -252,9 +264,19 @@ def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict) -> b
             proc.wait(timeout=30)
         except subprocess.TimeoutExpired:
             proc.kill()
+            print("    ! ТАЙМАУТ при ожидании завершения процесса после kill")
             return False
-        return proc.returncode == 0
-
+        
+        # --- ОТЛАДКА ПРИ ОШИБКЕ ---
+        if proc.returncode != 0:
+            print(f"    ! CP2K завершился с кодом возврата {proc.returncode}.")
+            print(f"    ! Последние строки вывода:")
+            for line in last_lines:
+                print(f"      > {line}")
+            print(f"    ! Полный лог сохранен в: {out_file}")
+            return False
+            
+        return True
 
 # ---------- Энергия изолированного атома ----------
 def calculate_isolated_atom_energy(cfg: dict):
