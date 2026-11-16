@@ -37,11 +37,32 @@ cd "$SCRIPT_DIR"
 # 1. Проверка и установка Docker
 # ==========================================
 install_docker() {
-    echo ">>> Docker not found. Installing..."
-    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-    sudo sh /tmp/get-docker.sh
-    rm -f /tmp/get-docker.sh
-    echo ">>> Docker installed."
+    echo ">>> Docker not found. Installing manually for Ubuntu 20.04..."
+    
+    # 1. Установка зависимостей
+    sudo apt-get update
+    sudo apt-get install -y ca-certificates curl
+
+    # 2. Добавление GPG ключа Docker
+    sudo install -m 0755 -d /etc/apt/keyrings
+    sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+    # 3. Добавление репозитория Docker
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    # 4. Установка Docker (без docker-model-plugin)
+    sudo apt-get update
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+    # 5. Запуск и включение автозапуска
+    sudo systemctl start docker
+    sudo systemctl enable docker
+
+    echo ">>> Docker installed successfully."
 }
 
 ensure_docker_group() {
