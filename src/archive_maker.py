@@ -24,7 +24,7 @@ import zipfile
 
 # Расширения файлов из results/, которые попадают в архив.
 # Сейчас это только .xyz (координаты + силы + энергии).
-RESULTS_ALLOWED_EXTS = {".xyz", ".inp", ".forces", ".out", ".txt"}
+RESULTS_ALLOWED_EXTS = {".xyz", ".inp", ".forces", ".out", ".txt", ".html"}
 
 
 def _iter_files(root_dir: str):

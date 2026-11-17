@@ -136,7 +136,14 @@ def install_signal_handlers():
 # ---------- Загрузка конфига ----------
 def load_config(path: str) -> Config:
     cfg = Config.load(path)
-
+    
+    # Вычисляем cell_size из max_dist (если не задан явно)
+    if "cell_size" not in cfg or cfg["cell_size"] is None:
+        cfg["cell_size"] = cfg["max_dist"] * 5.0
+        print(f"[config] cell_size не задан — вычислен из max_dist: "
+              f"{cfg['max_dist']} × 5 = {cfg['cell_size']} Å")
+    else:
+        print(f"[config] cell_size задан явно: {cfg['cell_size']} Å")
     # Все научные артефакты — в results/<element>/
     element_dir = os.path.join(RESULTS_ROOT, cfg["element"])
     cfg["output_dir"] = element_dir
@@ -561,6 +568,14 @@ def _main_impl():
 
     structure_to_html(combined_xyz_path, html_path)
     print(f"Готово! HTML сохранен в папке веб-сервера: {html_path}")
+
+    # Копия HTML в results/<element>/
+    html_copy_path = os.path.join(
+        CONFIG["output_dir"],
+        f"{CONFIG['element']}_optimized_first_structure.html"
+    )
+    shutil.copy2(html_path, html_copy_path)
+    print(f"Копия HTML сохранена в: {html_copy_path}")
 
 
 if __name__ == "__main__":
