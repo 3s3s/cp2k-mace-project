@@ -125,7 +125,7 @@ def run_find_minimum(
         print(f"    Лучшая структура: {best_local_idx+1} из {len(indices)}")
         print(f"    Энергия: {best_energy:.6f} eV")
         if n_atoms == 2:
-            print(f"    Расстояние Cu–Cu: {d:.4f} Å")
+            print(f"    Расстояние между атомами: {d:.4f} Å")
         print(f"    Макс. сила: {results[n_atoms]['fmax']:.6f} eV/Å")
         print(f"    Сохранено в: {out_n}")
 

@@ -3,11 +3,18 @@
 Модуль для работы с CP2K.
 """
 
+import sys
 import os
 import re
 import time
 import subprocess
 
+# Словарь псевдопотенциалов для элементов
+PSEUDOPOTENTIALS = {
+    "Cu": "GTH-PBE-q11",
+    "Fe": "GTH-PBE-q16",
+    "Ar": "GTH-PBE-q8",
+}
 
 # ---------- Шаблон CP2K ----------
 TEMPLATE = """&GLOBAL
@@ -69,7 +76,7 @@ TEMPLATE = """&GLOBAL
     &END COORD
     &KIND {element}
       BASIS_SET DZVP-MOLOPT-SR-GTH
-      POTENTIAL GTH-PBE-q11
+      POTENTIAL {potential}
     &END KIND
   &END SUBSYS
 
@@ -87,21 +94,31 @@ def write_cp2k_input(inp_path: str, project: str, coords, cfg: dict):
     """Пишет .inp файл для заданных координат, центрируя их в ячейке."""
     import numpy as np
     
+    ELEMENT = cfg['element']
+    
     coords_arr = np.array(coords)
     center_of_mass = coords_arr.mean(axis=0)
     cell_center = np.array([cfg["cell_size"] / 2.0] * 3)
     coords_arr = coords_arr - center_of_mass + cell_center
     
     coords_block = "\n".join(
-        f"      {cfg['element']}  {x:.8f}  {y:.8f}  {z:.8f}"
+        f"      {ELEMENT}  {x:.8f}  {y:.8f}  {z:.8f}"
         for x, y, z in coords_arr
     )
+    
+    potential = PSEUDOPOTENTIALS.get(ELEMENT)
+    if potential is None:
+        print(f"✗ Для элемента {ELEMENT} не задан псевдопотенциал. "
+              f"Доступные: {list(PSEUDOPOTENTIALS.keys())}")
+        sys.exit(1) 
+        
     with open(inp_path, "w") as f:
         f.write(TEMPLATE.format(
             project=project,
             cell_size=cfg["cell_size"],
             coords_block=coords_block,
-            element=cfg["element"],
+            element=ELEMENT,
+            potential=potential
         ))
 
 

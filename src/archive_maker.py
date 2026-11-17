@@ -24,7 +24,7 @@ import zipfile
 
 # Расширения файлов из results/, которые попадают в архив.
 # Сейчас это только .xyz (координаты + силы + энергии).
-RESULTS_ALLOWED_EXTS = {".xyz", ".inp", ".forces", ".out"}
+RESULTS_ALLOWED_EXTS = {".xyz", ".inp", ".forces", ".out", ".txt"}
 
 
 def _iter_files(root_dir: str):
@@ -77,7 +77,9 @@ def make_artifacts_archive(cfg: dict):
                     # на всякий случай, если .xyz окажется под другим именем
                     if os.path.abspath(full) == archive_abs:
                         continue
-                    arcname = os.path.join("results", rel)
+                        
+                    element = cfg.get("element", "unknown")
+                    arcname = os.path.join("results", element, rel)
                     zf.write(full, arcname)
                     added_results.append(arcname)
 

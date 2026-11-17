@@ -64,7 +64,7 @@ def _generate_structure_sequential(n_atoms: int, dim: int, cfg: dict):
     return points, box_size
 
 
-def _write_xyz(structures_with_id, n_atoms, dim, box_size, path):
+def _write_xyz(structures_with_id, n_atoms, dim, box_size, element, path):
     parent_dir = os.path.dirname(path)
     if parent_dir:
         os.makedirs(parent_dir, exist_ok=True)
@@ -80,7 +80,7 @@ def _write_xyz(structures_with_id, n_atoms, dim, box_size, path):
             )
             f.write(f"{n}\n{comment}\n")
             for p in points:
-                f.write(f"Cu {p[0]:.8f} {p[1]:.8f} {p[2]:.8f}\n")
+                f.write(f"{element} {p[0]:.8f} {p[1]:.8f} {p[2]:.8f}\n")
 
 
 def generate_structures(config: dict) -> str:
@@ -124,7 +124,7 @@ def generate_structures(config: dict) -> str:
                 except RuntimeError as e:
                     print(f"  ⚠ {e}")
                     continue
-            _write_xyz(structures_with_id, n_atoms, dim, box_size, output_xyz)
+            _write_xyz(structures_with_id, n_atoms, dim, box_size, config["element"], output_xyz)
             total_written += len(structures_with_id)
             print(f"  ✓ Записано {len(structures_with_id)} структур")
 

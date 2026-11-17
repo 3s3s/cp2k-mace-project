@@ -33,13 +33,18 @@ from config_loader import Config
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))       # .../src
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)                    # .../cp2k-mace-project
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")         # .../src/config.json
-OUTPUT_DIR = os.path.join(PROJECT_ROOT, "results")            # .../results
+RESULTS_ROOT = os.path.join(PROJECT_ROOT, "results")          # .../results
 MACE_BASE_DIR = os.path.join(PROJECT_ROOT, "mace_output")     # .../mace_output
 
-LOG_FILE = os.path.join(OUTPUT_DIR, "main.log")
-PID_FILE = os.path.join(OUTPUT_DIR, "main.pid")
-STATUS_FILE = os.path.join(OUTPUT_DIR, "main.status.json")
-ARCHIVE_FILE = os.path.join(OUTPUT_DIR, "artifacts.zip")
+# Служебные файлы веб-панели (в корне results/)
+LOG_FILE = os.path.join(RESULTS_ROOT, "main.log")
+PID_FILE = os.path.join(RESULTS_ROOT, "main.pid")
+STATUS_FILE = os.path.join(RESULTS_ROOT, "main.status.json")
+ARCHIVE_FILE = os.path.join(RESULTS_ROOT, "artifacts.zip")
+
+# ---------- Физические константы ----------
+HARTREE_TO_EV = 27.211386
+HARTREE_BOHR_TO_EV_ANG = 51.422067
 
 
 # ---------- Tee-логгер ----------
@@ -67,7 +72,7 @@ _original_stderr = sys.stderr
 
 
 def install_tee_logger():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(RESULTS_ROOT, exist_ok=True)
     sys.stdout = Tee(LOG_FILE, _original_stdout)
     sys.stderr = Tee(LOG_FILE, _original_stderr)
 
@@ -132,12 +137,14 @@ def install_signal_handlers():
 def load_config(path: str) -> Config:
     cfg = Config.load(path)
 
-    cfg["output_dir"] = OUTPUT_DIR
-    cfg["output_xyz"] = os.path.join(OUTPUT_DIR, "generated_structures.xyz")
+    # Все научные артефакты — в results/<element>/
+    element_dir = os.path.join(RESULTS_ROOT, cfg["element"])
+    cfg["output_dir"] = element_dir
+    cfg["output_xyz"] = os.path.join(element_dir, f"{cfg['element']}_generated_structures.xyz")
     cfg["output_all_xyz_name"] = f"{cfg['element']}_all_data.xyz"
-    cfg["failed_ids_file"] = os.path.join(OUTPUT_DIR, "failed_ids.txt")
+    cfg["failed_ids_file"] = os.path.join(element_dir, f"{cfg['element']}_failed_ids.txt")
     cfg["isolated_atom_energy_file"] = os.path.join(
-        OUTPUT_DIR, f"{cfg['element']}_isolated_atom_energy.txt"
+        element_dir, f"{cfg['element']}_isolated_atom_energy.txt"
     )
     cfg["lattice_str"] = (
         f"{cfg['cell_size']} 0.0 0.0 0.0 "
@@ -145,12 +152,15 @@ def load_config(path: str) -> Config:
         f"{cfg['cell_size']}"
     )
 
+    # MACE paths — отдельный каталог в корне проекта
     cfg["mace_base_dir"] = MACE_BASE_DIR
     cfg["mace_checkpoints_dir"] = os.path.join(cfg["mace_base_dir"], "checkpoints")
     cfg["mace_model_dir"] = os.path.join(cfg["mace_base_dir"], "models")
     cfg["mace_log_dir"] = os.path.join(cfg["mace_base_dir"], "logs")
     cfg["mace_results_dir"] = os.path.join(cfg["mace_base_dir"], "results")
 
+    # Служебные пути веб-панели и архив — в корне results/
+    cfg["results_root"] = RESULTS_ROOT
     cfg["log_file"] = LOG_FILE
     cfg["pid_file"] = PID_FILE
     cfg["status_file"] = STATUS_FILE
@@ -169,7 +179,7 @@ def resolve_device(cfg: Config) -> str:
         return cfg["device"]
 
     parser = argparse.ArgumentParser(
-        description="Запуск DFT расчетов для кластеров Cu и обучение MACE.\n"
+        description=f"Запуск DFT расчетов для кластеров {cfg['element']} и обучение MACE.\n"
                     "Подсказки по параметрам config.json: --help-config",
         formatter_class=argparse.RawTextHelpFormatter,
     )
@@ -303,7 +313,15 @@ def _main_impl():
 
     print("=" * 60)
     print(f"ЗАПУСК В РЕЖИМЕ: {DEVICE.upper()}")
+    print(f"Элемент: {CONFIG['element']}")
+    print(f"Рабочий каталог: {CONFIG['output_dir']}")
     print("=" * 60)
+
+    # 0) Создаём каталог для элемента
+    os.makedirs(CONFIG["output_dir"], exist_ok=True)
+
+    # 0.1) Расчёт/чтение энергии изолированного атома (СРАЗУ, до генерации)
+    e_atom = cp2k_runner.calculate_isolated_atom_energy(CONFIG)
 
     # 1) Генерация структур
     print("\n" + "=" * 60)
@@ -312,9 +330,10 @@ def _main_impl():
     generate_structures(CONFIG)
 
     # 2) Подготовка MACE-команды
+    mace_model_name = f"{CONFIG['element']}_all_finetune"
     mace_cmd = [
         "mace_run_train",
-        "--name", CONFIG["mace_model_name"],
+        "--name", mace_model_name,
         "--foundation_model", CONFIG["mace_foundation_model"],
         "--multiheads_finetuning", "False",
         "--batch_size", str(CONFIG["mace_batch_size"]),
@@ -335,13 +354,12 @@ def _main_impl():
         "--log_dir", CONFIG["mace_log_dir"],
         "--results_dir", CONFIG["mace_results_dir"],
     ]
-
+    
     input_xyz = CONFIG["output_xyz"]
     if not os.path.exists(input_xyz):
         print(f"✗ Входной файл {input_xyz} не найден.")
         raise SystemExit(1)
 
-    os.makedirs(CONFIG["output_dir"], exist_ok=True)
     xyz_path = os.path.join(CONFIG["output_dir"], CONFIG["output_all_xyz_name"])
 
     structures = read_structures_with_meta(input_xyz)
@@ -365,10 +383,7 @@ def _main_impl():
         cfg=CONFIG,
     )
 
-    # 4) Энергия изолированного атома
-    e_atom = cp2k_runner.calculate_isolated_atom_energy(CONFIG)
-
-    # 5) MACE fine-tuning
+    # 4) MACE fine-tuning
     if os.path.exists(CONFIG["mace_base_dir"]):
         print(f"\nУдаляю старый каталог MACE: {CONFIG['mace_base_dir']}")
         shutil.rmtree(CONFIG["mace_base_dir"])
@@ -396,7 +411,7 @@ def _main_impl():
     model_path = model_files[0]
     print(f"Используется модель: {model_path}")
 
-    # 6) Поиск минимума
+    # 5) Поиск минимума
     print("\n" + "=" * 60)
     print(f"ПОИСК МИНИМУМА (устройство: {DEVICE.upper()})")
     print("=" * 60)
@@ -410,8 +425,8 @@ def _main_impl():
     result = run_find_minimum(
         calc=calc,
         xyz_path=xyz_path,
-        output_xyz=os.path.join(CONFIG["output_dir"], "optimized_first_structure.xyz"),
-        logfile=os.path.join(CONFIG["output_dir"], "opt.log"),
+        output_xyz=os.path.join(CONFIG["output_dir"], f"{CONFIG['element']}_optimized_first_structure.xyz"),
+        logfile=os.path.join(CONFIG["output_dir"], f"{CONFIG['element']}_opt.log"),
     )
 
     print("\n" + "=" * 60)
@@ -432,7 +447,7 @@ def _main_impl():
         if be_per_atom is not None:
             print(f"       Энергия связи: {be_per_atom:.4f} eV/atom")
 
-    # 7) Повторный CP2K для оптимизированных структур
+    # 6) Повторный CP2K для оптимизированных структур
     print("\n" + "=" * 60)
     print("ПОВТОРНЫЙ CP2K ДЛЯ ОПТИМИЗИРОВАННЫХ СТРУКТУР")
     print("=" * 60)
@@ -445,14 +460,12 @@ def _main_impl():
             print(f"  ! Файл {out_n_file} не найден, пропускаю n={n_atoms}")
             continue
 
-        # Читаем оптимизированную структуру
         opt_atoms = read(out_n_file)
         coords = opt_atoms.get_positions().tolist()
         struct_id_opt = f"opt_n{n_atoms}"
 
         print(f"\n  [n={n_atoms}] Повторный CP2K для оптимизированной структуры...")
 
-        # Пишем .inp
         safe_id = re.sub(r"[^a-zA-Z0-9_]", "_", struct_id_opt)
         project = f"{CONFIG['element']}{n_atoms}_{safe_id}"
         inp_path = os.path.join(CONFIG["output_dir"], f"{project}.inp")
@@ -474,21 +487,20 @@ def _main_impl():
         try:
             energy = cp2k_runner.parse_energy(out_path)
             forces = cp2k_runner.parse_forces(force_path)
-            gap = cp2k_runner.parse_homo_lumo(out_path, CONFIG["hartree_to_ev"])
+            gap = cp2k_runner.parse_homo_lumo(out_path, HARTREE_TO_EV)
             mag = cp2k_runner.parse_magnetic_moment(out_path)
         except Exception as e:
             print(f"  ✗ Ошибка парсинга для n={n_atoms}: {e}")
             continue
 
-        energy_ev = energy * CONFIG["hartree_to_ev"]
+        energy_ev = energy * HARTREE_TO_EV
         forces_ev_ang = [
-            [fx * CONFIG["hartree_bohr_to_ev_ang"],
-             fy * CONFIG["hartree_bohr_to_ev_ang"],
-             fz * CONFIG["hartree_bohr_to_ev_ang"]]
+            [fx * HARTREE_BOHR_TO_EV_ANG,
+             fy * HARTREE_BOHR_TO_EV_ANG,
+             fz * HARTREE_BOHR_TO_EV_ANG]
             for fx, fy, fz in forces
         ]
 
-        # Обновляем XYZ-запись
         new_content = cp2k_runner.build_xyz_record(
             coords, energy_ev, forces_ev_ang, n_atoms, -1, struct_id_opt,
             CONFIG, gap, mag,
@@ -496,24 +508,27 @@ def _main_impl():
         with open(out_n_file, "w") as f:
             f.write(new_content)
 
-        # Сохраняем в result для финального отчёта
         r["homo_lumo_gap"] = gap
         r["magnetic_moment"] = mag
 
+        # Энергия на атом (для оптимизированной структуры)
+        e_per_atom = energy_ev / n_atoms
+
         msg = f"  ✓ n={n_atoms}: E = {energy_ev:.6f} eV за {elapsed:.1f} с"
+        msg += f", E/atom = {e_per_atom:.6f} eV"
         if gap is not None:
             msg += f", Gap = {gap:.4f} eV"
         if mag is not None:
             msg += f", MagMom = {mag:.4f} μB"
         print(msg)
 
-    # 8) Сборка всех минимумов + HTML
+    # 7) Сборка всех минимумов + HTML
     print("\n" + "=" * 60)
     print("СБОРКА ВСЕХ МИНИМУМОВ В ОДИН ФАЙЛ И ГЕНЕРАЦИЯ HTML")
     print("=" * 60)
 
     combined_xyz_path = os.path.join(
-        CONFIG["output_dir"], "optimized_first_structure_all_optimized.xyz"
+        CONFIG["output_dir"], f"{CONFIG['element']}_optimized_first_structure_all_optimized.xyz"
     )
 
     if os.path.exists(combined_xyz_path):
@@ -526,7 +541,6 @@ def _main_impl():
             with open(out_n_file, "r") as f_in:
                 content = f_in.read()
 
-            # Добавляем binding_energy_per_atom в комментарий
             if "binding_energy_per_atom" in r:
                 be = r["binding_energy_per_atom"]
                 lines = content.split("\n")
@@ -543,7 +557,7 @@ def _main_impl():
 
     web_server_dir = os.path.join(SCRIPT_DIR, "webserver", "static_pages")
     web_server_dir = os.path.abspath(web_server_dir)
-    html_path = os.path.join(web_server_dir, "optimized_first_structure.html")
+    html_path = os.path.join(web_server_dir, f"{CONFIG['element']}_optimized_first_structure.html")
 
     structure_to_html(combined_xyz_path, html_path)
     print(f"Готово! HTML сохранен в папке веб-сервера: {html_path}")
