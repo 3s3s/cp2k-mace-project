@@ -141,6 +141,13 @@ def load_config(path: str) -> Config:
         print(f"[config] cell_size вычислен из max_dist: "
               f"{cfg['max_dist']} × 5 = {cfg['cell_size']} Å")
 
+    # Дефолты для физических констант и CP2K, если их нет в config.json
+    cfg.setdefault("hartree_to_ev", HARTREE_TO_EV)
+    cfg.setdefault("hartree_bohr_to_ev_ang", HARTREE_BOHR_TO_EV_ANG)
+    cfg.setdefault("cp2k_cmd", "cp2k")
+    cfg.setdefault("timeout_per_config", 3600)
+    cfg.setdefault("verbose_cp2k", True)
+
     # Все научные артефакты — в results/<element>/
     element_dir = os.path.join(RESULTS_ROOT, cfg["element"])
     cfg["output_dir"] = element_dir
