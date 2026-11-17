@@ -249,7 +249,7 @@ def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict):
         last_print = start_time
 
         scf_convergence_history = []
-        MAX_STALLED_STEPS = 10
+        MAX_STALLED_STEPS = 30
         last_lines = []
 
         try:

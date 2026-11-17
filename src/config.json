@@ -5,7 +5,7 @@
   },
   "atom_diameter": {
     "value": 2,
-    "help": "Диаметр атома Cu в Å. Влияет на MIN_DIST/MAX_DIST."
+    "help": "Диаметр атома в Å. Влияет на MIN_DIST/MAX_DIST."
   },
   "min_dist": {
     "value": 2,
