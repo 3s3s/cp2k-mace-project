@@ -1,5 +1,6 @@
 *.Identifier
 *.xyz
+*.zip
 results
 __pycache__
 node_modules
