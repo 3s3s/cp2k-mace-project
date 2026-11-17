@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
 Модуль для работы с CP2K.
+Добавлено кэширование результатов DFT (по хэшу геометрии + параметров расчёта).
 """
 
 import sys
 import os
 import re
+import json
 import time
+import hashlib
 import subprocess
 
 # Словарь псевдопотенциалов для элементов
@@ -89,29 +92,46 @@ TEMPLATE = """&GLOBAL
 """
 
 
+# ---------- Хэш геометрии ----------
+def _geometry_hash(coords, cfg):
+    """
+    Хэш от координат (с точностью 1e-4 Å) + ключевых параметров расчёта.
+    Одинаковая геометрия + одинаковые параметры → одинаковый хэш → кэш валиден.
+    """
+    coords_rounded = [[round(x, 4) for x in atom] for atom in coords]
+    payload = {
+        "coords": coords_rounded,
+        "cell_size": cfg["cell_size"],
+        "element": cfg["element"],
+        "potential": PSEUDOPOTENTIALS.get(cfg["element"], ""),
+    }
+    s = json.dumps(payload, sort_keys=True)
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()[:16]
+
+
 # ---------- Генерация .inp ----------
 def write_cp2k_input(inp_path: str, project: str, coords, cfg: dict):
     """Пишет .inp файл для заданных координат, центрируя их в ячейке."""
     import numpy as np
-    
+
     ELEMENT = cfg['element']
-    
+
     coords_arr = np.array(coords)
     center_of_mass = coords_arr.mean(axis=0)
     cell_center = np.array([cfg["cell_size"] / 2.0] * 3)
     coords_arr = coords_arr - center_of_mass + cell_center
-    
+
     coords_block = "\n".join(
         f"      {ELEMENT}  {x:.8f}  {y:.8f}  {z:.8f}"
         for x, y, z in coords_arr
     )
-    
+
     potential = PSEUDOPOTENTIALS.get(ELEMENT)
     if potential is None:
         print(f"✗ Для элемента {ELEMENT} не задан псевдопотенциал. "
               f"Доступные: {list(PSEUDOPOTENTIALS.keys())}")
-        sys.exit(1) 
-        
+        sys.exit(1)
+
     with open(inp_path, "w") as f:
         f.write(TEMPLATE.format(
             project=project,
@@ -133,8 +153,8 @@ def parse_energy(outfile: str) -> float:
             if m:
                 return float(m.group(1))
     raise ValueError(f"Энергия не найдена в {outfile}")
-    
-    
+
+
 def parse_forces(forcefile: str):
     forces = []
     with open(forcefile, "r", encoding="utf-8", errors="replace") as f:
@@ -197,13 +217,12 @@ def parse_magnetic_moment(outfile: str):
         for line in f:
             if "Total charge and spin" in line:
                 parts = line.split()
-                # parts[-1] — последнее число (спиновый момент)
                 try:
                     return float(parts[-1])
                 except (ValueError, IndexError):
                     continue
 
-    # На случай, если формат другой — старые паттерны
+    # Fallback: старые паттерны
     with open(outfile, "r", encoding="utf-8", errors="replace") as f:
         content = f.read()
     for pat in [
@@ -215,14 +234,15 @@ def parse_magnetic_moment(outfile: str):
         if m:
             return float(m.group(1))
     return None
-    
+
+
 # ---------- Запуск CP2K ----------
 def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict):
     """
     Возвращает (is_cp2k_error, returncode).
     - returncode > 0: внутренняя ошибка CP2K (структуру надо пометить как сбойную).
     - returncode < 0: системная ошибка (SIGKILL/OOM), структуру помечать НЕЛЬЗЯ.
-    - Таймаут/расхождение SCF: возвращаем (True, -1), так как структура, скорее всего, проблемная.
+    - Таймаут/расхождение SCF: возвращаем (True, -1).
     - Успех: (False, 0).
     """
     interesting = re.compile(
@@ -243,13 +263,13 @@ def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict):
             )
         except FileNotFoundError:
             print(f"    ! ОШИБКА: Команда '{cfg['cp2k_cmd']}' не найдена в PATH.")
-            return (False, -2)  # Системная ошибка (не вина структуры)
+            return (False, -2)
 
         start_time = time.time()
         last_print = start_time
 
         scf_convergence_history = []
-        MAX_STALLED_STEPS = 30
+        MAX_STALLED_STEPS = 10
         last_lines = []
 
         try:
@@ -276,7 +296,7 @@ def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict):
                         if min(recent) >= scf_convergence_history[-MAX_STALLED_STEPS - 1]:
                             print(f"    ! ОБНАРУЖЕНО РАСХОЖДЕНИЕ SCF на шаге {step}. Убиваю CP2K.")
                             proc.kill()
-                            return (True, -1)  # Считаем это проблемой структуры
+                            return (True, -1)
 
                 if time.time() - last_print > 60:
                     elapsed = int(time.time() - start_time)
@@ -286,7 +306,7 @@ def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict):
                 if timeout is not None and (time.time() - start_time) > timeout:
                     print(f"    ! ТАЙМАУТ ({timeout} с) — убиваю CP2K")
                     proc.kill()
-                    return (True, -1)  # Считаем это проблемой структуры
+                    return (True, -1)
 
             proc.wait(timeout=30)
         except subprocess.TimeoutExpired:
@@ -296,7 +316,6 @@ def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict):
         rc = proc.returncode
 
         if rc > 0:
-            # Внутренняя ошибка CP2K
             print(f"    ! CP2K завершился с кодом возврата {rc} (внутренняя ошибка).")
             print(f"    ! Последние строки вывода:")
             for l in last_lines:
@@ -305,9 +324,8 @@ def run_cp2k_with_live_log(inp_file, out_file, timeout, workdir, cfg: dict):
             return (True, rc)
 
         if rc < 0:
-            # Системная ошибка (SIGKILL и т.п.) — не вина структуры
             print(f"    ! CP2K убит сигналом {-rc} (системная ошибка, вероятно OOM).")
-            print(f"    ! Структура НЕ будет помечена как сбойная, попробуйте освободить RAM и перезапустить.")
+            print(f"    ! Структура НЕ будет помечена как сбойная.")
             for l in last_lines:
                 print(f"      > {l}")
             print(f"    ! Полный лог сохранен в: {out_file}")
@@ -390,6 +408,89 @@ def build_xyz_record(coords, energy_ev, forces_ev_ang, n_atoms, dim, struct_id,
     return "\n".join(lines) + "\n"
 
 
+def run_dft_for_single_structure(coords, n_atoms, dim, struct_id, cfg, force_recompute=False):
+    """
+    Считает DFT для одной структуры с кэшированием.
+    Возвращает dict {energy_ev, forces_ev_ang, gap, mag, cached, elapsed, hash}
+    или dict с ключом "error": True при ошибке.
+    """
+    safe_id = re.sub(r"[^a-zA-Z0-9_]", "_", struct_id)
+    ghash = _geometry_hash(coords, cfg)
+    project = f"{cfg['element']}{n_atoms}_{safe_id}_{ghash}"
+
+    inp_path = os.path.join(cfg["output_dir"], f"{project}.inp")
+    out_path = os.path.join(cfg["output_dir"], f"{project}.out")
+    force_path = os.path.join(cfg["output_dir"], f"{project}.forces")
+    result_json = os.path.join(cfg["output_dir"], f"{project}.json")
+
+    # --- 1) Проверка кэша ---
+    if not force_recompute and os.path.exists(result_json):
+        try:
+            with open(result_json, "r", encoding="utf-8") as f:
+                cached = json.load(f)
+            print(f"  ✓ {struct_id}: взято из кэша (hash={ghash})")
+            return cached
+        except Exception as e:
+            print(f"  ⚠ Ошибка чтения кэша {result_json}: {e}. Пересчитываю...")
+
+    # --- 2) Запуск CP2K ---
+    write_cp2k_input(inp_path, project, coords, cfg)
+    t0 = time.time()
+    is_cp2k_error, rc = run_cp2k_with_live_log(
+        inp_path, out_path, cfg["timeout_per_config"], cfg["output_dir"], cfg
+    )
+    elapsed = time.time() - t0
+
+    if rc != 0:
+        return {
+            "error": True,
+            "rc": rc,
+            "is_cp2k_error": is_cp2k_error,
+            "elapsed": elapsed,
+        }
+
+    # --- 3) Парсинг ---
+    try:
+        energy = parse_energy(out_path)
+        forces = parse_forces(force_path)
+        gap = parse_homo_lumo(out_path, cfg["hartree_to_ev"])
+        mag = parse_magnetic_moment(out_path)
+    except Exception as e:
+        print(f"  ✗ Ошибка парсинга {struct_id}: {e}")
+        return {"error": True, "rc": 0, "is_cp2k_error": True, "elapsed": elapsed}
+
+    if len(forces) != n_atoms:
+        print(f"  ✗ {struct_id}: ожидалось {n_atoms} атомов, получено {len(forces)}")
+        return {"error": True, "rc": 0, "is_cp2k_error": True, "elapsed": elapsed}
+
+    energy_ev = energy * cfg["hartree_to_ev"]
+    forces_ev_ang = [
+        [fx * cfg["hartree_bohr_to_ev_ang"],
+         fy * cfg["hartree_bohr_to_ev_ang"],
+         fz * cfg["hartree_bohr_to_ev_ang"]]
+        for fx, fy, fz in forces
+    ]
+
+    result = {
+        "energy_ev": energy_ev,
+        "forces_ev_ang": forces_ev_ang,
+        "gap": gap,
+        "mag": mag,
+        "cached": False,
+        "elapsed": elapsed,
+        "hash": ghash,
+    }
+
+    # --- 4) Сохраняем кэш ---
+    try:
+        with open(result_json, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"  ⚠ Не удалось сохранить кэш {result_json}: {e}")
+
+    return result
+
+
 def run_dft_for_structures(structures, xyz_path, done_ids, failed_ids, cfg: dict):
     with open(xyz_path, "a") as xyz:
         for idx, s in enumerate(structures):
@@ -406,64 +507,35 @@ def run_dft_for_structures(structures, xyz_path, done_ids, failed_ids, cfg: dict
                 continue
 
             coords = s["coords"]
-            safe_id = re.sub(r"[^a-zA-Z0-9_]", "_", struct_id)
-            project = f"{cfg['element']}{n_atoms}_{safe_id}"
-
             print(f"\n[{idx+1}/{len(structures)}] {struct_id} (n={n_atoms}, dim={dim})")
 
-            inp_path = os.path.join(cfg["output_dir"], f"{project}.inp")
-            out_path = os.path.join(cfg["output_dir"], f"{project}.out")
-            force_path = os.path.join(cfg["output_dir"], f"{project}.forces")
+            res = run_dft_for_single_structure(coords, n_atoms, dim, struct_id, cfg)
 
-            write_cp2k_input(inp_path, project, coords, cfg)
-
-            t0 = time.time()
-            is_cp2k_error, rc = run_cp2k_with_live_log(
-                inp_path, out_path, cfg["timeout_per_config"], cfg["output_dir"], cfg
-            )
-            elapsed = time.time() - t0
-
-            if rc != 0:
-                # Различаем внутреннюю (rc>0) и системную (rc<0) ошибки
-                if rc > 0 or is_cp2k_error:
+            if res.get("error"):
+                rc = res.get("rc", 0)
+                elapsed = res.get("elapsed", 0)
+                if rc > 0 or res.get("is_cp2k_error"):
                     print(f"  ✗ Внутренняя ошибка CP2K (код {rc}) за {elapsed:.1f} с")
                     print(f"  ! Помечаю {struct_id} как сбойную")
                     _mark_as_failed(struct_id, cfg["failed_ids_file"])
                     failed_ids.add(struct_id)
                 else:
                     print(f"  ⚠ Системная ошибка (код {rc}) за {elapsed:.1f} с")
-                    print(f"  ! Структура {struct_id} НЕ помечена как сбойная (проблема не в ней).")
-                    print(f"  ! Освободите память и перезапустите, структура будет посчитана снова.")
+                    print(f"  ! Структура {struct_id} НЕ помечена как сбойная.")
                 continue
 
-            try:
-                energy = parse_energy(out_path)
-                forces = parse_forces(force_path)
-                gap = parse_homo_lumo(out_path, cfg["hartree_to_ev"])
-                mag = parse_magnetic_moment(out_path)
-            except Exception as e:
-                print(f"  ✗ Ошибка извлечения данных: {e}")
-                print(f"  ! Помечаю {struct_id} как сбойную")
-                _mark_as_failed(struct_id, cfg["failed_ids_file"])
-                failed_ids.add(struct_id)
-                continue
+            energy_ev = res["energy_ev"]
+            forces_ev_ang = res["forces_ev_ang"]
+            gap = res["gap"]
+            mag = res["mag"]
+            e_per_atom = energy_ev / n_atoms
 
-            if len(forces) != n_atoms:
-                print(f"  ✗ Ожидалось {n_atoms} атомов, получено {len(forces)}")
-                print(f"  ! Помечаю {struct_id} как сбойную")
-                _mark_as_failed(struct_id, cfg["failed_ids_file"])
-                failed_ids.add(struct_id)
-                continue
-
-            energy_ev = energy * cfg["hartree_to_ev"]
-            forces_ev_ang = [
-                [fx * cfg["hartree_bohr_to_ev_ang"],
-                 fy * cfg["hartree_bohr_to_ev_ang"],
-                 fz * cfg["hartree_bohr_to_ev_ang"]]
-                for fx, fy, fz in forces
-            ]
-
-            msg = f"  ✓ OK: E = {energy_ev:.6f} eV за {elapsed:.1f} с"
+            msg = f"  ✓ OK: E = {energy_ev:.6f} eV"
+            if res.get("cached"):
+                msg += " (из кэша)"
+            else:
+                msg += f" за {res['elapsed']:.1f} с"
+            msg += f", E/atom = {e_per_atom:.6f} eV"
             if gap is not None:
                 msg += f", Gap = {gap:.4f} eV"
             if mag is not None:

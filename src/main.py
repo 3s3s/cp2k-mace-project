@@ -30,19 +30,17 @@ from config_loader import Config
 
 
 # ---------- Пути ----------
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))       # .../src
-PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)                    # .../cp2k-mace-project
-CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")         # .../src/config.json
-RESULTS_ROOT = os.path.join(PROJECT_ROOT, "results")          # .../results
-MACE_BASE_DIR = os.path.join(PROJECT_ROOT, "mace_output")     # .../mace_output
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
+RESULTS_ROOT = os.path.join(PROJECT_ROOT, "results")
+MACE_BASE_DIR = os.path.join(PROJECT_ROOT, "mace_output")
 
-# Служебные файлы веб-панели (в корне results/)
 LOG_FILE = os.path.join(RESULTS_ROOT, "main.log")
 PID_FILE = os.path.join(RESULTS_ROOT, "main.pid")
 STATUS_FILE = os.path.join(RESULTS_ROOT, "main.status.json")
 ARCHIVE_FILE = os.path.join(RESULTS_ROOT, "artifacts.zip")
 
-# ---------- Физические константы ----------
 HARTREE_TO_EV = 27.211386
 HARTREE_BOHR_TO_EV_ANG = 51.422067
 
@@ -82,7 +80,7 @@ def restore_std_logger():
     sys.stderr = _original_stderr
 
 
-# ---------- Статус процесса (для веб-сервера) ----------
+# ---------- Статус процесса ----------
 _START_TS = time.time()
 
 
@@ -136,14 +134,13 @@ def install_signal_handlers():
 # ---------- Загрузка конфига ----------
 def load_config(path: str) -> Config:
     cfg = Config.load(path)
-    
-    # Вычисляем cell_size из max_dist (если не задан явно)
+
+    # cell_size вычисляется из max_dist, если не задан явно
     if "cell_size" not in cfg or cfg["cell_size"] is None:
         cfg["cell_size"] = cfg["max_dist"] * 5.0
-        print(f"[config] cell_size не задан — вычислен из max_dist: "
+        print(f"[config] cell_size вычислен из max_dist: "
               f"{cfg['max_dist']} × 5 = {cfg['cell_size']} Å")
-    else:
-        print(f"[config] cell_size задан явно: {cfg['cell_size']} Å")
+
     # Все научные артефакты — в results/<element>/
     element_dir = os.path.join(RESULTS_ROOT, cfg["element"])
     cfg["output_dir"] = element_dir
@@ -159,14 +156,14 @@ def load_config(path: str) -> Config:
         f"{cfg['cell_size']}"
     )
 
-    # MACE paths — отдельный каталог в корне проекта
+    # MACE paths
     cfg["mace_base_dir"] = MACE_BASE_DIR
     cfg["mace_checkpoints_dir"] = os.path.join(cfg["mace_base_dir"], "checkpoints")
     cfg["mace_model_dir"] = os.path.join(cfg["mace_base_dir"], "models")
     cfg["mace_log_dir"] = os.path.join(cfg["mace_base_dir"], "logs")
     cfg["mace_results_dir"] = os.path.join(cfg["mace_base_dir"], "results")
 
-    # Служебные пути веб-панели и архив — в корне results/
+    # Служебные пути веб-панели и архив
     cfg["results_root"] = RESULTS_ROOT
     cfg["log_file"] = LOG_FILE
     cfg["pid_file"] = PID_FILE
@@ -250,7 +247,7 @@ def get_done_ids(xyz_path):
     done = set()
     if not os.path.exists(xyz_path):
         return done
-    
+
     with open(xyz_path, "r", encoding="utf-8", errors="replace") as f:
         while True:
             line = f.readline()
@@ -264,7 +261,7 @@ def get_done_ids(xyz_path):
             except ValueError:
                 break
             comment = f.readline().strip()
-            
+
             m_id = re.search(r'struct_id=["\']?([^"\'\s]+)["\']?', comment)
             if m_id:
                 sid = m_id.group(1)
@@ -324,10 +321,9 @@ def _main_impl():
     print(f"Рабочий каталог: {CONFIG['output_dir']}")
     print("=" * 60)
 
-    # 0) Создаём каталог для элемента
     os.makedirs(CONFIG["output_dir"], exist_ok=True)
 
-    # 0.1) Расчёт/чтение энергии изолированного атома (СРАЗУ, до генерации)
+    # 0) Энергия изолированного атома (сразу, до генерации)
     e_atom = cp2k_runner.calculate_isolated_atom_energy(CONFIG)
 
     # 1) Генерация структур
@@ -361,7 +357,7 @@ def _main_impl():
         "--log_dir", CONFIG["mace_log_dir"],
         "--results_dir", CONFIG["mace_results_dir"],
     ]
-    
+
     input_xyz = CONFIG["output_xyz"]
     if not os.path.exists(input_xyz):
         print(f"✗ Входной файл {input_xyz} не найден.")
@@ -374,11 +370,11 @@ def _main_impl():
 
     done_ids = get_done_ids(xyz_path)
     failed_ids = cp2k_runner.read_failed_ids(CONFIG["failed_ids_file"])
-    
+
     print(f"Уже посчитано уникальных struct_id: {len(done_ids)}")
     print(f"Пропущено сбойных структур (из {CONFIG['failed_ids_file']}): {len(failed_ids)}")
-    
-    # 3) DFT через CP2K
+
+    # 3) DFT через CP2K (с кэшированием)
     print("\n" + "=" * 60)
     print("DFT РАСЧЁТ (CP2K)")
     print("=" * 60)
@@ -454,7 +450,7 @@ def _main_impl():
         if be_per_atom is not None:
             print(f"       Энергия связи: {be_per_atom:.4f} eV/atom")
 
-    # 6) Повторный CP2K для оптимизированных структур
+    # 6) Повторный CP2K для оптимизированных структур (с кэшированием)
     print("\n" + "=" * 60)
     print("ПОВТОРНЫЙ CP2K ДЛЯ ОПТИМИЗИРОВАННЫХ СТРУКТУР")
     print("=" * 60)
@@ -471,42 +467,25 @@ def _main_impl():
         coords = opt_atoms.get_positions().tolist()
         struct_id_opt = f"opt_n{n_atoms}"
 
-        print(f"\n  [n={n_atoms}] Повторный CP2K для оптимизированной структуры...")
+        print(f"\n  [n={n_atoms}] CP2K для оптимизированной структуры...")
 
-        safe_id = re.sub(r"[^a-zA-Z0-9_]", "_", struct_id_opt)
-        project = f"{CONFIG['element']}{n_atoms}_{safe_id}"
-        inp_path = os.path.join(CONFIG["output_dir"], f"{project}.inp")
-        out_path = os.path.join(CONFIG["output_dir"], f"{project}.out")
-        force_path = os.path.join(CONFIG["output_dir"], f"{project}.forces")
-
-        cp2k_runner.write_cp2k_input(inp_path, project, coords, CONFIG)
-
-        t0 = time.time()
-        is_cp2k_error, rc = cp2k_runner.run_cp2k_with_live_log(
-            inp_path, out_path, CONFIG["timeout_per_config"], CONFIG["output_dir"], CONFIG
+        res = cp2k_runner.run_dft_for_single_structure(
+            coords=coords,
+            n_atoms=n_atoms,
+            dim=-1,
+            struct_id=struct_id_opt,
+            cfg=CONFIG,
         )
-        elapsed = time.time() - t0
 
-        if rc != 0:
-            print(f"  ✗ CP2K для оптимизированной n={n_atoms} завершился с ошибкой (код {rc})")
+        if res.get("error"):
+            print(f"  ✗ CP2K для оптимизированной n={n_atoms} завершился с ошибкой "
+                  f"(код {res.get('rc')})")
             continue
 
-        try:
-            energy = cp2k_runner.parse_energy(out_path)
-            forces = cp2k_runner.parse_forces(force_path)
-            gap = cp2k_runner.parse_homo_lumo(out_path, HARTREE_TO_EV)
-            mag = cp2k_runner.parse_magnetic_moment(out_path)
-        except Exception as e:
-            print(f"  ✗ Ошибка парсинга для n={n_atoms}: {e}")
-            continue
-
-        energy_ev = energy * HARTREE_TO_EV
-        forces_ev_ang = [
-            [fx * HARTREE_BOHR_TO_EV_ANG,
-             fy * HARTREE_BOHR_TO_EV_ANG,
-             fz * HARTREE_BOHR_TO_EV_ANG]
-            for fx, fy, fz in forces
-        ]
+        energy_ev = res["energy_ev"]
+        forces_ev_ang = res["forces_ev_ang"]
+        gap = res["gap"]
+        mag = res["mag"]
 
         new_content = cp2k_runner.build_xyz_record(
             coords, energy_ev, forces_ev_ang, n_atoms, -1, struct_id_opt,
@@ -518,10 +497,12 @@ def _main_impl():
         r["homo_lumo_gap"] = gap
         r["magnetic_moment"] = mag
 
-        # Энергия на атом (для оптимизированной структуры)
         e_per_atom = energy_ev / n_atoms
-
-        msg = f"  ✓ n={n_atoms}: E = {energy_ev:.6f} eV за {elapsed:.1f} с"
+        msg = f"  ✓ n={n_atoms}: E = {energy_ev:.6f} eV"
+        if res.get("cached"):
+            msg += " (из кэша)"
+        else:
+            msg += f" за {res['elapsed']:.1f} с"
         msg += f", E/atom = {e_per_atom:.6f} eV"
         if gap is not None:
             msg += f", Gap = {gap:.4f} eV"
