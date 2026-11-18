@@ -15,10 +15,10 @@ RUN pip3 install --upgrade pip
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip3 install torch --index-url https://download.pytorch.org/whl/cu121
 
-# Устанавливаем MACE и ASE (тяжелый слой, кэшируется)
+# Устанавливаем MACE, ASE, FastAPI и Uvicorn (тяжелый слой, кэшируется)
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip3 install mace-torch ase
-
+    pip3 install mace-torch ase fastapi uvicorn numpy
+	
 # Устанавливаем Node.js (LTS 20.x)
 RUN apt-get update && apt-get install -y \
     ca-certificates \

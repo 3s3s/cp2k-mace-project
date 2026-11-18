@@ -26,7 +26,48 @@ def _random_point(dim, box_size):
     else:
         raise ValueError("dim должен быть 1, 2 или 3")
 
+def generate_extra_structures(config: dict, n_atoms: int, count: int, start_index: int = 0) -> str:
+    """
+    Генерирует `count` дополнительных структур для заданного n_atoms
+    и возвращает путь к отдельному XYZ-файлу с ними.
+    
+    struct_id: f"{n_atoms}_{dim}_{start_index+i}_seed{seed}_d{d}_extra"
+    """
+    random_seed = config["random_seed"]
+    atom_diameter = config["atom_diameter"]
+    dims = config["dimensions_per_n"].get(str(n_atoms), [3])
+    # config["dimensions_per_n"] может быть с int-ключами, если из JSON уже приведён
+    if isinstance(list(config["dimensions_per_n"].keys())[0], int):
+        dims = config["dimensions_per_n"].get(n_atoms, [3])
 
+    output_xyz = config["output_xyz"].replace(
+        ".xyz", f"_extra_n{n_atoms}.xyz"
+    )
+
+    random.seed(random_seed + 1000 * (start_index + 1))
+
+    if os.path.exists(output_xyz):
+        os.remove(output_xyz)
+
+    total_written = 0
+    for dim in dims:
+        box_size = _compute_box_size(n_atoms, config)
+        structures_with_id = []
+        for i in range(count):
+            idx = start_index + i
+            struct_id = f"{n_atoms}_{dim}_{idx}_seed{random_seed}_d{atom_diameter}_extra"
+            try:
+                s, _ = _generate_structure_sequential(n_atoms, dim, config)
+                structures_with_id.append((struct_id, s))
+            except RuntimeError as e:
+                print(f"  ⚠ {e}")
+                continue
+        _write_xyz(structures_with_id, n_atoms, dim, box_size, config["element"], output_xyz)
+        total_written += len(structures_with_id)
+
+    print(f"[extra] Сгенерировано {total_written} структур для n={n_atoms} → {output_xyz}")
+    return output_xyz
+    
 def _generate_structure_sequential(n_atoms: int, dim: int, cfg: dict):
     box_size = _compute_box_size(n_atoms, cfg)
     min_dist = cfg["min_dist"]
