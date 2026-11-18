@@ -332,6 +332,7 @@ def _main_impl():
 
     # 0) Энергия изолированного атома (сразу, до генерации)
     e_atom = cp2k_runner.calculate_isolated_atom_energy(CONFIG)
+    CONFIG["e_isolated_atom"] = e_atom
 
     # 1) Генерация структур
     print("\n" + "=" * 60)
@@ -505,12 +506,22 @@ def _main_impl():
         r["magnetic_moment"] = mag
 
         e_per_atom = energy_ev / n_atoms
+        
+        # Энергия связи на атом
+        e_iso = CONFIG.get("e_isolated_atom")
+        be_per_atom = None
+        if e_iso is not None:
+            be_per_atom = (e_iso * n_atoms - energy_ev) / n_atoms
+        
         msg = f"  ✓ n={n_atoms}: E = {energy_ev:.6f} eV"
         if res.get("cached"):
             msg += " (из кэша)"
         else:
             msg += f" за {res['elapsed']:.1f} с"
-        msg += f", E/atom = {e_per_atom:.6f} eV"
+        if be_per_atom is not None:
+            msg += f", E_binding/atom = {be_per_atom:.6f} eV"
+        else:
+            msg += f", E/atom = {e_per_atom:.6f} eV"
         if gap is not None:
             msg += f", Gap = {gap:.4f} eV"
         if mag is not None:

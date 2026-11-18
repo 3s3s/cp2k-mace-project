@@ -529,13 +529,22 @@ def run_dft_for_structures(structures, xyz_path, done_ids, failed_ids, cfg: dict
             gap = res["gap"]
             mag = res["mag"]
             e_per_atom = energy_ev / n_atoms
-
+            
+            # Энергия связи на атом
+            e_iso = cfg.get("e_isolated_atom")
+            be_per_atom = None
+            if e_iso is not None:
+                be_per_atom = (e_iso * n_atoms - energy_ev) / n_atoms
+                
             msg = f"  ✓ OK: E = {energy_ev:.6f} eV"
             if res.get("cached"):
                 msg += " (из кэша)"
             else:
                 msg += f" за {res['elapsed']:.1f} с"
-            msg += f", E/atom = {e_per_atom:.6f} eV"
+            if be_per_atom is not None:
+                msg += f", E_binding/atom = {be_per_atom:.6f} eV"
+            else:
+                msg += f", E/atom = {energy_ev / n_atoms:.6f} eV"
             if gap is not None:
                 msg += f", Gap = {gap:.4f} eV"
             if mag is not None:
