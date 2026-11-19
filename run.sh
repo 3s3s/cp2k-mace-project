@@ -255,6 +255,11 @@ if [[ "$RUN_MODE" == "detached" ]]; then
     else
         CONTAINER_CMD="npm install && exec sleep infinity"
     fi
+    echo ""
+    echo ">>> Container started in background."
+    echo ">>> Logs:  docker logs -f $CONTAINER_NAME"
+    echo ">>> Exec:  docker exec -it $CONTAINER_NAME bash"
+    echo ">>> Stop:  docker stop $CONTAINER_NAME"
 else
     CONTAINER_CMD="npm install && bash"
     if [[ "$ROLE" == "worker" ]]; then
