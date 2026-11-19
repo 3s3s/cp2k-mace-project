@@ -190,20 +190,21 @@ def parse_forces(forcefile: str):
 
 def parse_homo_lumo(outfile: str, hartree_to_ev: float):
     """
-    Ищет строку вида:
+    Ищет строки вида:
       HOMO - LUMO gap [eV] :    1.384688
-    Возвращает значение в eV или None.
+    Возвращает минимальное значение в eV или None.
     """
     pattern = re.compile(
         r"HOMO\s*-\s*LUMO\s+gap\s*\[eV\]\s*:\s*(-?\d+\.\d+)",
         re.IGNORECASE,
     )
+    gaps = []
     with open(outfile, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
             m = pattern.search(line)
             if m:
-                return float(m.group(1))
-    return None
+                gaps.append(float(m.group(1)))
+    return min(gaps) if gaps else None
 
 
 def parse_magnetic_moment(outfile: str):
