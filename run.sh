@@ -250,9 +250,14 @@ if [[ "$PRUNE_OLD" == "true" ]]; then
 fi
 
 if [[ "$RUN_MODE" == "detached" ]]; then
-    echo ""
-    echo ">>> Container started in background."
-    echo ">>> Logs:  docker logs -f $CONTAINER_NAME"
-    echo ">>> Exec:  docker exec -it $CONTAINER_NAME bash"
-    echo ">>> Stop:  docker stop $CONTAINER_NAME"
+    if [[ "$ROLE" == "worker" ]]; then
+        CONTAINER_CMD="npm install && exec python3 ./src/worker.py"
+    else
+        CONTAINER_CMD="npm install && exec sleep infinity"
+    fi
+else
+    CONTAINER_CMD="npm install && bash"
+    if [[ "$ROLE" == "worker" ]]; then
+        CONTAINER_CMD="npm install && python3 ./src/worker.py"
+    fi
 fi
