@@ -4,9 +4,12 @@ set -euo pipefail
 # ==========================================
 # Параметры по умолчанию
 # ==========================================
-MODE="cpu"
+MODE="cpu"               # cpu | gpu
 RUN_MODE="interactive" # interactive | detached
 ROLE="shell"           # shell | worker
+PULL_IMAGE="true"      # true | false
+PRUNE_OLD="false"      # true | false
+
 IMAGE_CPU="ghcr.io/3s3s/cp2k-mace:latest-cpu"
 IMAGE_GPU="ghcr.io/3s3s/cp2k-mace:latest-gpu"
 
@@ -22,7 +25,7 @@ CUSTOM_NAME=""
 # Разбор аргументов командной строки
 # ==========================================
 usage() {
-    echo "Usage: $0 [--cpu|--gpu] [--detach|-d] [--worker|-w] [--name|-n NAME] [--port PORT1] [--port2 PORT2] [--master-host HOST]"
+    echo "Usage: $0 [--cpu|--gpu] [--detach|-d] [--worker|-w] [--name|-n NAME] [--port PORT1] [--port2 PORT2] [--master-host HOST] [--no-pull] [--prune]"
     echo ""
     echo "Options:"
     echo "  --cpu               Run CPU image (default)"
@@ -33,11 +36,15 @@ usage() {
     echo "  --port PORT1        Host port mapped to container port 8443 (default: 8443)"
     echo "  --port2 PORT2       Host port mapped to container port 8000 (default: 8000)"
     echo "  --master-host HOST  Master hostname/IP for worker to connect to (default: host.docker.internal)"
+    echo "  --no-pull           Skip 'docker pull' before starting container"
+    echo "  --prune             Remove dangling (<none>) images after starting container"
     echo "  -h, --help          Show this help"
     echo ""
-    echo "Examples for running Master and Worker instances:"
-    echo "  Master:  $0 --name inst1 --port 8443 --port2 8000"
-    echo "  Worker:  $0 --name inst2 --port 8444 --port2 8001 --worker"
+    echo "Examples:"
+    echo "  CPU interactive:  $0 --cpu"
+    echo "  GPU detached:     $0 --gpu -d --prune"
+    echo "  Master & Worker:  $0 --cpu -d --name inst1 --port 8443 --port2 8000"
+    echo "                    $0 --gpu -d --name inst2 --port 8444 --port2 8001 --worker"
     exit 1
 }
 
@@ -55,6 +62,8 @@ while [[ $# -gt 0 ]]; do
         --port) HOST_PORT_8443="$2"; shift 2 ;;
         --port2) HOST_PORT_8000="$2"; shift 2 ;;
         --master-host) MASTER_HOST="$2"; shift 2 ;;
+        --no-pull) PULL_IMAGE="false"; shift ;;
+        --prune) PRUNE_OLD="true"; shift ;;
         -h|--help) usage ;;
         *) echo "Unknown option: $1"; usage ;;
     esac
@@ -71,7 +80,7 @@ cd "$SCRIPT_DIR"
 # ==========================================
 install_docker() {
     echo ">>> Docker not found. Installing manually for Ubuntu..."
-    
+
     sudo apt-get update
     sudo apt-get install -y ca-certificates curl
 
@@ -170,7 +179,7 @@ if [[ "$MODE" == "gpu" ]]; then
 fi
 
 # ==========================================
-# 3. Запуск контейнера
+# 3. Определение имени контейнера и образа
 # ==========================================
 if [[ -n "$CUSTOM_NAME" ]]; then
     CONTAINER_NAME="cp2k-mace-${MODE}-${CUSTOM_NAME}"
@@ -183,6 +192,19 @@ if [[ "$MODE" == "gpu" ]]; then
     IMAGE_TO_RUN="$IMAGE_GPU"
 fi
 
+# ==========================================
+# 4. Обновление образа из реестра
+# ==========================================
+if [[ "$PULL_IMAGE" == "true" ]]; then
+    echo ">>> Pulling latest image '$IMAGE_TO_RUN'..."
+    docker pull "$IMAGE_TO_RUN"
+else
+    echo ">>> Skipping image pull (--no-pull)."
+fi
+
+# ==========================================
+# 5. Запуск контейнера
+# ==========================================
 echo ">>> Starting container '$CONTAINER_NAME' in $MODE mode ($RUN_MODE)..."
 echo ">>> Ports: host:$HOST_PORT_8443 -> container:8443, host:$HOST_PORT_8000 -> container:8000"
 
@@ -199,7 +221,7 @@ if [[ "$ROLE" == "worker" ]]; then
     CONTAINER_CMD="npm install && python3 ./src/worker.py"
 fi
 
-# Удаляем старый контейнер с таким именем, если он был
+# Удаляем старый контейнер с таким же именем, если он был
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo ">>> Removing existing container $CONTAINER_NAME..."
     docker rm -f "$CONTAINER_NAME" >/dev/null
@@ -221,6 +243,11 @@ docker run $DOCKER_FLAGS $EXTRA_FLAGS \
     --name "$CONTAINER_NAME" \
     "$IMAGE_TO_RUN" \
     bash -c "$CONTAINER_CMD"
+
+if [[ "$PRUNE_OLD" == "true" ]]; then
+    echo ">>> Cleaning up dangling images..."
+    docker image prune -f >/dev/null
+fi
 
 if [[ "$RUN_MODE" == "detached" ]]; then
     echo ""
