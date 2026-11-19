@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Главный модуль (Master/Server). Читает config.json, генерирует структуры,
-поднимает FastAPI сервер для раздачи задач воркерам и приема результатов.
+Главный модуль (Master/Server). Управляет очередью, регистрирует воркеры,
+раздает задачи и отслеживает статус их выполнения.
 """
 
 import os
@@ -34,10 +34,8 @@ import archive_maker
 from config_loader import Config
 
 
-# ---------- КОНСТАНТА ШАГА 2 ----------
-TASK_TIMEOUT = 10  # секунды ожидания ответа от воркера
-
-MAIN_PORT = 9000
+# ---------- КОНСТАНТА ----------
+TASK_TIMEOUT = 3600  # секунды ожидания ответа от воркера
 
 
 # ---------- Пути ----------
@@ -187,26 +185,11 @@ def load_config(path: str) -> Config:
 CONFIG = load_config(CONFIG_PATH)
 
 
-# ---------- DEVICE ----------
+# ---------- CLI / Порт ----------
 def resolve_device(cfg: Config) -> str:
     if cfg.get("device"):
         return cfg["device"]
-
-    parser = argparse.ArgumentParser(
-        description=f"Запуск DFT расчетов для кластеров {cfg['element']} и обучение MACE.",
-        formatter_class=argparse.RawTextHelpFormatter,
-    )
-    parser.add_argument("--cpu", action="store_true", help="CPU")
-    parser.add_argument("--gpu", action="store_true", help="GPU")
-    parser.add_argument("--port", type=int, default=8000, help="Порт сервера мастера")
-    parser.add_argument("--help-config", action="store_true", help="Помощь по конфигу")
-    args, unknown = parser.parse_known_args()
-
-    if args.help_config:
-        cfg.print_help()
-        sys.exit(0)
-
-    return "gpu" if args.gpu else "cpu"
+    return "cpu"
 
 
 def get_port_from_args():
@@ -252,53 +235,48 @@ def read_structures_with_meta(xyz_path):
     return structures
 
 
-def get_done_ids(xyz_path):
-    done = set()
-    if not os.path.exists(xyz_path):
-        return done
-
-    with open(xyz_path, "r", encoding="utf-8", errors="replace") as f:
-        while True:
-            line = f.readline()
-            if not line:
-                break
-            line = line.strip()
-            if line == "":
-                continue
-            try:
-                n_atoms = int(line)
-            except ValueError:
-                break
-            comment = f.readline().strip()
-
-            m_id = re.search(r'struct_id=["\']?([^"\'\s]+)["\']?', comment)
-            if m_id:
-                sid = m_id.group(1)
-                if sid.endswith(".0"):
-                    sid = sid[:-2]
-                done.add(sid)
-            for _ in range(n_atoms):
-                f.readline()
-    return done
+# ---------- Вспомогательная функция для записи сбойных ID ----------
+def _mark_as_failed(struct_id, filepath):
+    parent_dir = os.path.dirname(filepath)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
+    with open(filepath, "a", encoding="utf-8") as f:
+        f.write(f"{struct_id}\n")
 
 
 # =====================================================================
-# СЕРВЕР ОЧЕРЕДИ (FASTAPI) ДЛЯ ШАГА 2
+# СЕРВЕР ОЧЕРЕДИ С УЧЕТОМ НОМЕРОВ ВОРКЕРОВ
 # =====================================================================
 app = FastAPI()
 
-# Состояние менеджера задач
 task_queue_lock = threading.Lock()
-pending_tasks = []      # Список словарей структур
+pending_tasks = []      # Список нерешенных структур
 active_tasks = {}       # struct_id -> {"task": dict, "time_sent": float, "worker_id": str}
-completed_tasks = set() # Множество завершенных struct_id
+completed_tasks = set() # Завершенные struct_id
+
+next_worker_id = 1
+registered_workers = set()
+
+
+@app.get("/register-worker")
+def register_worker():
+    global next_worker_id, registered_workers
+    with task_queue_lock:
+        worker_id = f"worker_{next_worker_id}"
+        next_worker_id += 1
+        registered_workers.add(worker_id)
+        print(f"[Master] Зарегистрирован новый воркер с номером: {worker_id}")
+        return {"status": "ok", "worker_id": worker_id}
 
 
 @app.get("/get-task")
-def get_task(worker_id: str = "unknown"):
+def get_task(worker_id: str):
     global pending_tasks, active_tasks
     with task_queue_lock:
-        # Проверяем не истек ли таймаут у активных задач (Watchdog)
+        if worker_id not in registered_workers:
+            raise HTTPException(status_code=400, detail="Неизвестный воркер. Сначала пройдите регистрацию.")
+
+        # Проверка таймаута зависших задач (Watchdog)
         now = time.time()
         expired_ids = []
         for sid, info in active_tasks.items():
@@ -306,7 +284,8 @@ def get_task(worker_id: str = "unknown"):
                 expired_ids.append(sid)
         
         for sid in expired_ids:
-            print(f"[Master Watchdog] Задача {sid} просрочена (таймаут {TASK_TIMEOUT}с), возвращаем в очередь.")
+            old_worker = active_tasks[sid]["worker_id"]
+            print(f"[Master Watchdog] Задача {sid} (воркер {old_worker}) просрочена (таймаут {TASK_TIMEOUT}с), возвращаем в очередь.")
             task_data = active_tasks.pop(sid)["task"]
             pending_tasks.append(task_data)
 
@@ -315,17 +294,38 @@ def get_task(worker_id: str = "unknown"):
 
         task = pending_tasks.pop(0)
         struct_id = task["struct_id"]
+        
+        # Передаем воркеру не только структуру, но и нужные параметры конфига
+        task_payload = {
+            "struct_id": struct_id,
+            "n_atoms": task["n_atoms"],
+            "dim": task["dim"],
+            "coords": task["coords"],
+            # Добавлено: передача конфигурации
+            "cfg": {
+                "element": CONFIG["element"],
+                "cell_size": CONFIG["cell_size"],
+                "timeout_per_config": CONFIG["timeout_per_config"],
+                "cp2k_cmd": CONFIG["cp2k_cmd"],
+                "verbose_cp2k": CONFIG["verbose_cp2k"],
+                "hartree_to_ev": CONFIG.get("hartree_to_ev", 27.211386),
+                "hartree_bohr_to_ev_ang": CONFIG.get("hartree_bohr_to_ev_ang", 51.422067),
+                "output_dir": CONFIG["output_dir"],
+                "failed_ids_file": CONFIG["failed_ids_file"],
+            }
+        }
+
         active_tasks[struct_id] = {
             "task": task,
             "time_sent": now,
             "worker_id": worker_id
         }
 
-        print(f"отдал новую структуру {struct_id}, число оставшихся в очереди структур: {len(pending_tasks)}, число отданных воркерам структур: {len(active_tasks)}")
-        return {"status": "ok", "task": task}
-
+        print(f"Воркер [{worker_id}] получил структуру {struct_id} | В очереди: {len(pending_tasks)} | У воркеров: {len(active_tasks)}")
+        return {"status": "ok", "task": task_payload}
 
 class TaskResult(BaseModel):
+    worker_id: str
     struct_id: str
     success: bool
     data: dict = None
@@ -333,22 +333,54 @@ class TaskResult(BaseModel):
 
 @app.post("/submit-result")
 def submit_result(result: TaskResult):
-    global active_tasks, completed_tasks
+    global active_tasks, pending_tasks, completed_tasks
     with task_queue_lock:
         sid = result.struct_id
+        w_id = result.worker_id
+
         if sid in active_tasks:
-            active_tasks.pop(sid)
+            task_info = active_tasks.pop(sid)
+            assigned_worker = task_info["worker_id"]
+            task_data = task_info["task"]
+            
+            if assigned_worker != w_id:
+                print(f"[Master] Внимание: воркер {w_id} прислал результат для задачи {sid}, которая была выдана воркеру {assigned_worker}!")
+
+            # Если расчет неуспешный
+            if not result.success:
+                print(f"[Master] ✗ Воркер [{w_id}] сообщил об ошибке расчета для {sid}. Возвращаем в очередь.")
+                pending_tasks.append(task_data)
+                _mark_as_failed(sid, CONFIG["failed_ids_file"])
+                return {"status": "rejected", "message": "Расчет неуспешен, структура помечена как сбойная/вернута"}
+
+            # Успешный результат: записываем в общий .xyz файл
+            data = result.data or {}
+            energy_ev = data.get("energy_ev")
+            forces_ev_ang = data.get("forces_ev_ang")
+            gap = data.get("gap")
+            mag = data.get("mag")
+            
+            if energy_ev is not None and forces_ev_ang is not None:
+                xyz_path = os.path.join(CONFIG["output_dir"], CONFIG["output_all_xyz_name"])
+                record = cp2k_runner.build_xyz_record(
+                    task_data["coords"], energy_ev, forces_ev_ang, 
+                    task_data["n_atoms"], task_data["dim"], sid,
+                    CONFIG, gap, mag
+                )
+                with open(xyz_path, "a", encoding="utf-8") as xyz_file:
+                    xyz_file.write(record)
+                    xyz_file.flush()
+
             completed_tasks.add(sid)
-            print(f"[Master] Получен результат для {sid}. Успех: {result.success}")
+            print(f"[Master] ✓ Воркер [{w_id}] сдал успешный результат для {sid}. Записано в {CONFIG['output_all_xyz_name']}")
             return {"status": "accepted"}
         else:
-            print(f"[Master] Предупреждение: получен результат для неизвестной или просроченной задачи {sid}")
+            print(f"[Master] Получен результат для неизвестной или просроченной задачи {sid} от воркера {w_id}")
             return {"status": "not_found"}
-
+            
 
 def run_fastapi_server(port: int):
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
-
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
 
 # ---------- main ----------
 def main():
@@ -386,8 +418,6 @@ def main():
         write_status(final_state, exit_code=exit_code)
         restore_std_logger()
 
-def get_port_from_args():
-    return MAIN_PORT
 
 def _main_impl():
     global pending_tasks
@@ -403,7 +433,7 @@ def _main_impl():
 
     os.makedirs(CONFIG["output_dir"], exist_ok=True)
 
-    # 1) Генерация структур (для проверки Шага 2)
+    # 1) Генерация структур
     print("\n" + "=" * 60)
     print("ГЕНЕРАЦИЯ СТРУКТУР")
     print("=" * 60)
@@ -417,30 +447,21 @@ def _main_impl():
     structures = read_structures_with_meta(input_xyz)
     print(f"Загружено {len(structures)} структур из {input_xyz}")
 
-    # Заполняем очередь задач
     with task_queue_lock:
         pending_tasks = structures.copy()
 
     print(f"\n[Server] Очередь заполнена. Всего задач: {len(pending_tasks)}")
-    print(f"[Server] Поднимаю FastAPI сервер на http://127.0.0.1:{port} ...")
-    print(f"[Server] Константа TASK_TIMEOUT = {TASK_TIMEOUT} секунд.")
+    print(f"[Server] Поднимаю FastAPI сервер на http://0.0.0.0:{port} ...")
 
-    # Запускаем сервер в фоновом потоке
     server_thread = threading.Thread(target=run_fastapi_server, args=(port,), daemon=True)
     server_thread.start()
 
-    # Демонстрационный цикл ожидания для Шага 2:
-    # Ждем пока воркер запросит структуру, затем ждем таймаут (10 сек),
-    # чтобы проверить автоматический возврат задачи в очередь.
-    print("\n[Шаг 2 - Отладка] Сервер ждет запросы от воркеров. Нажмите Ctrl+C для выхода.")
+    print("\n[Шаг с воркерами] Сервер готов принимать регистрацию и выдавать задачи. Нажмите Ctrl+C для выхода.")
     try:
         while True:
             time.sleep(1)
-            with task_queue_lock:
-                # Если все задачи выполнены или для теста крутимся вечно
-                pass
     except KeyboardInterrupt:
-        print("\n[Server] Остановка сервера по требованию пользователя.")
+        print("\n[Server] Остановка сервера.")
 
 
 if __name__ == "__main__":

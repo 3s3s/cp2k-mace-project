@@ -17,20 +17,14 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Устанавливаем MACE, ASE, FastAPI и Uvicorn (тяжелый слой, кэшируется)
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip3 install mace-torch ase fastapi uvicorn numpy
+    pip3 install mace-torch ase fastapi uvicorn numpy requests
 	
-# Устанавливаем Node.js (LTS 20.x)
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    curl \
-    gnupg \
-    && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update \
+# Устанавливаем Node.js (LTS 20.x) через официальный скрипт
+RUN apt-get update && apt-get install -y curl ca-certificates gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
-
+	
 # Устанавливаем Midnight Commander (и другие утилиты) в самом конце
 RUN apt-get update && apt-get install -y mc git ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
