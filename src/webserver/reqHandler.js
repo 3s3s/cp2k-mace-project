@@ -2,10 +2,11 @@
 
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 const { spawn } = require('child_process');
 
-// ==== Управление дочерним процессом ====
-let child = null; // ссылка на текущий запущенный main.py
+// ==== Управление дочерним процессом main.py ====
+let child = null;
 
 function isAlive(pid) {
     if (!pid || !Number.isInteger(pid)) return false;
@@ -44,6 +45,40 @@ function logSize() {
     }
 }
 
+function appendEarlyLog(text) {
+    try {
+        fs.mkdirSync(path.dirname(global.paths.LOG_FILE), { recursive: true });
+        fs.appendFileSync(global.paths.LOG_FILE, text, 'utf8');
+    } catch (e) {
+        // игнорируем ошибку записи лога
+    }
+}
+
+function fetchJson(url, timeoutMs = 1500) {
+    return new Promise((resolve) => {
+        const req = http.get(url, { timeout: timeoutMs }, (res) => {
+            let body = '';
+            res.on('data', (chunk) => { body += chunk; });
+            res.on('end', () => {
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                    try {
+                        resolve(JSON.parse(body));
+                    } catch (e) {
+                        resolve(null);
+                    }
+                } else {
+                    resolve(null);
+                }
+            });
+        });
+        req.on('timeout', () => {
+            req.destroy();
+            resolve(null);
+        });
+        req.on('error', () => resolve(null));
+    });
+}
+
 // ==================== Handlers ====================
 
 exports.handle = function (app) {
@@ -55,14 +90,14 @@ exports.handle = function (app) {
     app.post('/api/run', onRun);
     app.post('/api/stop', onStop);
     app.get('/api/status', onStatus);
+    app.get('/api/cluster', onClusterStatus);
     app.get('/api/log', onLog);
     app.get('/download', onDownload);
 };
 
 // ---------- Главная страница ----------
-function onMain(req, responce) {
-    let render_info = { lang: 'ru' };
-    responce.render('pages/index', render_info);
+function onMain(req, res) {
+    res.render('pages/index', { lang: 'ru' });
 }
 
 // ---------- Config ----------
@@ -83,7 +118,6 @@ function onSaveConfig(req, res) {
             return res.status(400).json({ ok: false, error: 'config must be an object' });
         }
 
-        // читаем текущий файл, чтобы сохранить help-тексты
         const raw = fs.readFileSync(global.paths.CONFIG_PATH, 'utf8');
         const current = JSON.parse(raw);
 
@@ -93,18 +127,15 @@ function onSaveConfig(req, res) {
             const inc = incoming[key];
 
             if (cur && typeof cur === 'object' && 'value' in cur && 'help' in cur) {
-                // вариант {value, help}
                 updated[key] = {
                     value: (inc && typeof inc === 'object' && 'value' in inc) ? inc.value : cur.value,
-                    help: cur.help, // help не меняется
+                    help: cur.help,
                 };
             } else {
-                // плоский ключ
                 updated[key] = (inc !== undefined) ? inc : cur;
             }
         }
 
-        // атомарная запись
         const tmp = global.paths.CONFIG_PATH + '.tmp';
         fs.writeFileSync(tmp, JSON.stringify(updated, null, 2), 'utf8');
         fs.renameSync(tmp, global.paths.CONFIG_PATH);
@@ -115,37 +146,37 @@ function onSaveConfig(req, res) {
     }
 }
 
-// ---------- Run / Stop ----------
+// ---------- Run / Stop main.py ----------
 function onRun(req, res) {
     try {
-        // защита от двойного запуска
         const pid = readPid();
         if (pid && isAlive(pid)) {
-            return res.status(409).json({ ok: false, error: 'already running', pid });
+            return res.status(409).json({ ok: false, error: 'main.py is already running', pid });
         }
 
-        const args = [global.paths.MAIN_SCRIPT];
         const body = req.body || {};
-        if (body.device === 'gpu') args.push('--gpu');
-        else if (body.device === 'cpu') args.push('--cpu');
+        const port = parseInt(body.port, 10) || parseInt(process.env.MASTER_PORT, 10) || 8000;
+        const args = [global.paths.MAIN_SCRIPT, '--port', String(port)];
 
-        // запускаем через python3, cwd = PROJECT_ROOT
         child = spawn('python3', args, {
             cwd: global.paths.PROJECT_ROOT,
             detached: false,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
 
-        // дублируем stdout/stderr в main.log на случай, если tee ещё не встал
-        child.stdout.on('data', () => {});
-        child.stderr.on('data', () => {});
+        child.stdout.on('data', (chunk) => {
+            appendEarlyLog(chunk.toString('utf8'));
+        });
+        child.stderr.on('data', (chunk) => {
+            appendEarlyLog(chunk.toString('utf8'));
+        });
 
         child.on('exit', (code, sig) => {
             console.log(`main.py exited code=${code} sig=${sig}`);
             child = null;
         });
 
-        res.json({ ok: true, pid: child.pid });
+        res.json({ ok: true, pid: child.pid, port });
     } catch (e) {
         res.status(500).json({ ok: false, error: String(e) });
     }
@@ -155,9 +186,21 @@ function onStop(req, res) {
     try {
         const pid = readPid() || (child && child.pid);
         if (!pid || !isAlive(pid)) {
-            return res.status(404).json({ ok: false, error: 'not running' });
+            return res.status(404).json({ ok: false, error: 'main.py is not running' });
         }
+
         process.kill(pid, 'SIGTERM');
+
+        setTimeout(() => {
+            if (isAlive(pid)) {
+                try {
+                    process.kill(pid, 'SIGKILL');
+                } catch (e) {
+                    // процесс уже мог завершиться
+                }
+            }
+        }, 3000).unref();
+
         res.json({ ok: true, pid });
     } catch (e) {
         res.status(500).json({ ok: false, error: String(e) });
@@ -178,6 +221,34 @@ function onStatus(req, res) {
     });
 }
 
+// ---------- Cluster / Workers / Queue ----------
+async function onClusterStatus(req, res) {
+    const port = parseInt(req.query.port, 10) || parseInt(process.env.MASTER_PORT, 10) || 8000;
+    const remoteQueue = await fetchJson(`http://127.0.0.1:${port}/queue-status`);
+
+    let workerLogs = [];
+    try {
+        const logDir = path.join(global.paths.RESULTS_DIR, 'worker_logs');
+        if (fs.existsSync(logDir)) {
+            workerLogs = fs.readdirSync(logDir)
+                .filter((name) => name.endsWith('.log'))
+                .map((name) => {
+                    const st = fs.statSync(path.join(logDir, name));
+                    return { file: name, size: st.size, updated_at: st.mtimeMs };
+                });
+        }
+    } catch (e) {
+        workerLogs = [];
+    }
+
+    res.json({
+        ok: true,
+        master_reachable: Boolean(remoteQueue),
+        queue: remoteQueue,
+        worker_logs: workerLogs,
+    });
+}
+
 // ---------- Log (incremental) ----------
 function onLog(req, res) {
     try {
@@ -189,7 +260,6 @@ function onLog(req, res) {
         try {
             const stat = fs.statSync(global.paths.LOG_FILE);
             if (from > stat.size) {
-                // файл пересоздали — читаем с начала
                 newOffset = 0;
             }
             const fd = fs.openSync(global.paths.LOG_FILE, 'r');

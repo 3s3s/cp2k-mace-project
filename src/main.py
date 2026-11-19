@@ -257,7 +257,23 @@ completed_tasks = set() # Завершенные struct_id
 next_worker_id = 1
 registered_workers = set()
 
-
+@app.get("/queue-status")
+def queue_status():
+    with task_queue_lock:
+        return {
+            "pending": len(pending_tasks),
+            "active": len(active_tasks),
+            "completed": len(completed_tasks),
+            "workers": sorted(registered_workers),
+            "active_details": {
+                sid: {
+                    "worker_id": info["worker_id"],
+                    "age_sec": round(time.time() - info["time_sent"], 1),
+                }
+                for sid, info in active_tasks.items()
+            },
+        }
+        
 @app.get("/register-worker")
 def register_worker():
     global next_worker_id, registered_workers
