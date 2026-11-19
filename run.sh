@@ -216,9 +216,18 @@ else
 fi
 
 # Формируем команду старта внутри контейнера
-CONTAINER_CMD="npm install && bash"
-if [[ "$ROLE" == "worker" ]]; then
-    CONTAINER_CMD="npm install && python3 ./src/worker.py"
+if [[ "$RUN_MODE" == "detached" ]]; then
+    if [[ "$ROLE" == "worker" ]]; then
+        CONTAINER_CMD="npm install && exec python3 ./src/worker.py"
+    else
+        CONTAINER_CMD="npm install && exec sleep infinity"
+    fi
+else
+    if [[ "$ROLE" == "worker" ]]; then
+        CONTAINER_CMD="npm install && python3 ./src/worker.py"
+    else
+        CONTAINER_CMD="npm install && bash"
+    fi
 fi
 
 # Удаляем старый контейнер с таким же именем, если он был
@@ -250,19 +259,9 @@ if [[ "$PRUNE_OLD" == "true" ]]; then
 fi
 
 if [[ "$RUN_MODE" == "detached" ]]; then
-    if [[ "$ROLE" == "worker" ]]; then
-        CONTAINER_CMD="npm install && exec python3 ./src/worker.py"
-    else
-        CONTAINER_CMD="npm install && exec sleep infinity"
-    fi
     echo ""
     echo ">>> Container started in background."
     echo ">>> Logs:  docker logs -f $CONTAINER_NAME"
     echo ">>> Exec:  docker exec -it $CONTAINER_NAME bash"
     echo ">>> Stop:  docker stop $CONTAINER_NAME"
-else
-    CONTAINER_CMD="npm install && bash"
-    if [[ "$ROLE" == "worker" ]]; then
-        CONTAINER_CMD="npm install && python3 ./src/worker.py"
-    fi
 fi
